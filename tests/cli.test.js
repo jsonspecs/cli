@@ -7,6 +7,8 @@ const path = require('path');
 const runInit = require('../lib/commands/init');
 const runValidate = require('../lib/commands/validate');
 const runBuild = require('../lib/commands/build');
+const runTest = require('../lib/commands/test');
+const { compileSnapshot } = require('jsonspecs');
 
 function tmpdir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'jsonspecs-cli-'));
@@ -35,6 +37,24 @@ test('build writes snapshot and build-info', () => {
   assert.equal(code, 0);
   assert.equal(fs.existsSync(path.join(root, 'demo', 'dist', 'snapshot.json')), true);
   assert.equal(fs.existsSync(path.join(root, 'demo', 'dist', 'build-info.json')), true);
+  const snapshot = require(path.join(root, 'demo', 'dist', 'snapshot.json'));
+  assert.equal(compileSnapshot(snapshot).kind, 'prepared-jsonspecs');
+});
+
+test('test executes generated positive and negative samples', () => {
+  const root = tmpdir(); runInit('demo', root);
+  assert.equal(runTest(path.join(root, 'demo')), 0);
+});
+
+test('studio boots through introspection API on loopback', async (t) => {
+  const root = tmpdir(); runInit('demo', root); const projectRoot = path.join(root, 'demo');
+  const manifestFile = path.join(projectRoot, 'manifest.json'); const manifest = JSON.parse(fs.readFileSync(manifestFile)); manifest.studio.port = 0; fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+  const project = require('../lib/project').resolveProject(projectRoot);
+  const runtime = require('../lib/studio-server').startStudio(project); t.after(() => { runtime.server.close(); for (const watcher of runtime.ctx.watchers) watcher.close(); });
+  await new Promise((resolve) => runtime.server.listening ? resolve() : runtime.server.once('listening', resolve));
+  const health = await fetch(`http://127.0.0.1:${runtime.server.address().port}/health`).then((response) => response.json());
+  assert.equal(health.ok, true);
+  assert.equal(Object.hasOwn(runtime.ctx.compiled, 'registry'), false);
 });
 
 test('validate succeeds with project-local custom operators', () => {
@@ -45,9 +65,9 @@ test('validate succeeds with project-local custom operators', () => {
   check: {
     amount_gt_zero(rule, ctx) {
       const value = ctx.get(rule.field);
-      if (!value.ok()) return { ok: false, actual: undefined };
+      if (!value.ok) return { status: 'FAIL', actual: undefined };
       const n = Number(value.value);
-      return { ok: Number.isFinite(n) && n > 0, actual: value.value };
+      return { status: Number.isFinite(n) && n > 0 ? 'OK' : 'FAIL', actual: value.value };
     }
   },
   predicate: {},
@@ -83,4 +103,8 @@ test('validate succeeds with project-local custom operators', () => {
 
   const code = runValidate(projectRoot);
   assert.equal(code, 0);
+  const { engine } = require('../lib/engine').createCliEngine(require('../lib/project').resolveProject(projectRoot));
+  const loaded = require('../lib/loader-fs').loadArtifactsFromDir(path.join(projectRoot, 'rules'));
+  const prepared = engine.compile(loaded.artifacts, { sources: loaded.sources });
+  assert.equal(engine.runPipeline(prepared, { pipelineId: 'entrypoints.order.validation', payload: { order: { amount: -1 } } }).status, 'ERROR');
 });

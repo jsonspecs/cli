@@ -1,6 +1,6 @@
 # JSONSpecs CLI
 
-[![CI](https://github.com/catindev/jsonscpecs-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/catindev/jsonscpecs-cli/actions)
+[![CI](https://github.com/catindev/jsonspecs-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/catindev/jsonspecs-cli/actions)
 [![npm](https://img.shields.io/npm/v/jsonspecs-cli)](https://www.npmjs.com/package/jsonspecs-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node 20+](https://img.shields.io/badge/Node-20%2B-green)](https://nodejs.org/)
@@ -13,11 +13,16 @@ CLI backend and local studio host for [jsonspecs](https://www.npmjs.com/package/
 - `jsonspecs studio`
 - `jsonspecs validate`
 - `jsonspecs build`
+- `jsonspecs test`
+
+`build` writes a deterministic, hash-verified snapshot for `jsonspecs.compileSnapshot()`. `test` executes every JSON sample: `expect.status` is exact, `expect.issues` uses subset matching, and `expect.exact: true` rejects additional issues.
 
 ## Studio architecture
 
 `jsonspecs-cli` serves a built SPA from `/` and exposes a JSON API under `/api/*`.
 The current bundled frontend is expected to be built from the separate `jsonspecs-studio-ui` project and copied into `static/`.
+
+Studio binds to `127.0.0.1` and uses same-origin requests by default. It is a local development tool and must not be exposed as a production service.
 
 ## Runtime model
 
@@ -47,10 +52,10 @@ module.exports = {
   check: {
     amount_gt_zero(rule, ctx) {
       const got = ctx.get(rule.field);
-      if (!got.ok()) return { ok: false, actual: undefined };
+      if (!got.ok) return { status: 'FAIL', actual: undefined };
 
       const n = Number(got.value);
-      return { ok: Number.isFinite(n) && n > 0, actual: got.value };
+      return { status: Number.isFinite(n) && n > 0 ? 'OK' : 'FAIL', actual: got.value };
     },
   },
   predicate: {},
