@@ -21,7 +21,7 @@
   },
   "config": {
     "jsonspecsVersion": "2.0.0",
-    "jsonspecsGitRef": "cef98ac364d9809e4c49135566924d25fefa4fe2"
+    "jsonspecsGitRef": "v2.0.0"
   },
   "dependencies": {
     "express": "^5.2.1",
