@@ -1,0 +1,35 @@
+name: Promote npm release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published SemVer version to promote to latest
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-promote-jsonspecs-cli
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Promote published version to latest
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PACKAGE_NAME: jsonspecs-cli
+          VERSION: ${{ inputs.version }}
+        run: |
+          node -e 'if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/.test(process.argv[1])) process.exit(1)' "$VERSION"
+          test "$(npm view "$PACKAGE_NAME@$VERSION" version)" = "$VERSION"
+          npm dist-tag add "$PACKAGE_NAME@$VERSION" latest
+          test "$(npm view "$PACKAGE_NAME@latest" version)" = "$VERSION"
