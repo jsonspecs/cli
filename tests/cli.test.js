@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const express = require('express');
+const { spawnSync } = require('node:child_process');
 
 const runInit = require('../lib/commands/init');
 const runValidate = require('../lib/commands/validate');
@@ -11,9 +12,27 @@ const runBuild = require('../lib/commands/build');
 const runTest = require('../lib/commands/test');
 const { compileSnapshot } = require('jsonspecs');
 const { enrichArtifactForUi } = require('../lib/studio-helpers');
+const { stripAnsi } = require('../lib/terminal');
 
 function tmpdir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'jsonspecs-cli-'));
+}
+
+function captureConsole(fn) {
+  const originalLog = console.log;
+  const originalError = console.error;
+  const stdout = [];
+  const stderr = [];
+  let value;
+  try {
+    console.log = (...args) => stdout.push(args.join(' '));
+    console.error = (...args) => stderr.push(args.join(' '));
+    value = fn();
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+  }
+  return { value, stdout: stdout.join('\n'), stderr: stderr.join('\n') };
 }
 
 test('init creates a scaffolded rules project', () => {
@@ -67,6 +86,58 @@ test('build writes snapshot and build-info', () => {
 test('test executes generated positive and negative samples', () => {
   const root = tmpdir(); runInit('demo', root);
   assert.equal(runTest(path.join(root, 'demo')), 0);
+});
+
+test('human CLI output supports ANSI color while JSON and quiet modes stay clean', () => {
+  const root = tmpdir();
+  runInit('demo', root);
+  const projectRoot = path.join(root, 'demo');
+
+  const testOutput = captureConsole(() => runTest(projectRoot, { color: 'always' }));
+  assert.equal(testOutput.value, 0);
+  assert.match(testOutput.stdout, /\u001b\[[0-9;]*m/);
+  assert.match(stripAnsi(testOutput.stdout), /PASS order\.ok\.json/);
+  assert.match(stripAnsi(testOutput.stdout), /test OK \(2\/2\)/);
+
+  const jsonOutput = captureConsole(() => runValidate(projectRoot, { json: true, color: 'always' }));
+  assert.doesNotMatch(jsonOutput.stdout, /\u001b\[[0-9;]*m/);
+  assert.deepEqual(JSON.parse(jsonOutput.stdout), { ok: true, artifactCount: 2 });
+
+  const quietOutput = captureConsole(() => runTest(projectRoot, { quiet: true, color: 'always' }));
+  assert.equal(quietOutput.stdout, '');
+  assert.equal(quietOutput.stderr, '');
+});
+
+test('validation diagnostics are structured and colorized in human mode', () => {
+  const root = tmpdir();
+  runInit('demo', root);
+  const projectRoot = path.join(root, 'demo');
+  const ruleFile = path.join(projectRoot, 'rules', 'library', 'order_amount_required.json');
+  const rule = JSON.parse(fs.readFileSync(ruleFile, 'utf8'));
+  delete rule.operator;
+  fs.writeFileSync(ruleFile, JSON.stringify(rule, null, 2));
+
+  const output = captureConsole(() => runValidate(projectRoot, { color: 'always' }));
+  assert.equal(output.value, 1);
+  assert.match(output.stderr, /\u001b\[[0-9;]*m/);
+  const plain = stripAnsi(output.stderr);
+  assert.match(plain, /validation failed/);
+  assert.match(plain, /\[SCHEMA_VALIDATION_ERROR\]/);
+  assert.match(plain, /artifact: library\.order\.amount_required/);
+  assert.match(plain, /path: operator/);
+  assert.match(plain, /message:/);
+});
+
+test('bin help accepts --color and emits color only when requested', () => {
+  const bin = path.join(__dirname, '..', 'bin', 'jsonspecs.js');
+  const colored = spawnSync(process.execPath, [bin, '--help', '--color=always'], { encoding: 'utf8' });
+  assert.equal(colored.status, 0);
+  assert.match(colored.stdout, /\u001b\[[0-9;]*m/);
+  assert.match(stripAnsi(colored.stdout), /--color auto\|always\|never/);
+
+  const plain = spawnSync(process.execPath, [bin, '--help', '--color=never'], { encoding: 'utf8' });
+  assert.equal(plain.status, 0);
+  assert.doesNotMatch(plain.stdout, /\u001b\[[0-9;]*m/);
 });
 
 test('studio boots through introspection API on loopback', async (t) => {

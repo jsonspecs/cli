@@ -1,20 +1,35 @@
 #!/usr/bin/env node
 const { CliError } = require('../lib/errors');
+const { createTerminal } = require('../lib/terminal');
 const { version } = require('../package.json');
 
-function printHelp() {
-  console.log(`jsonspecs-cli v${version}\n\nCommands:\n  jsonspecs init <project-name>\n  jsonspecs studio [--host HOST] [--port PORT] [--no-open]\n  jsonspecs build [--json] [--quiet]\n  jsonspecs validate [--json] [--quiet]\n  jsonspecs test [--json] [--quiet]\n`);
+function printHelp(options = {}) {
+  const terminal = createTerminal(options);
+  const c = terminal.out;
+  console.log(`${c.bold(`jsonspecs-cli v${version}`)}
+
+${c.bold('Commands:')}
+  jsonspecs init <project-name> [--color auto|always|never]
+  jsonspecs studio [--host HOST] [--port PORT] [--no-open] [--color auto|always|never]
+  jsonspecs build [--json] [--quiet] [--color auto|always|never]
+  jsonspecs validate [--json] [--quiet] [--color auto|always|never]
+  jsonspecs test [--json] [--quiet] [--color auto|always|never]
+
+${c.bold('Color:')}
+  auto is default. NO_COLOR disables color. FORCE_COLOR enables color.
+  --json output is always machine-readable and never colorized.
+`);
 }
 
 (async function main() {
   const [, , command, ...args] = process.argv;
-  const flags = { json: args.includes('--json'), quiet: args.includes('--quiet') };
   try {
+    const flags = { json: args.includes('--json'), quiet: args.includes('--quiet'), color: colorModeFromArgs(args) };
     switch (command) {
       case 'init':
-        return require('../lib/commands/init')(args[0]);
+        return require('../lib/commands/init')(args[0], process.cwd(), flags);
       case 'studio':
-        return require('../lib/commands/studio')(process.cwd(), { host: valueAfter(args, '--host'), port: valueAfter(args, '--port'), openBrowser: !args.includes('--no-open') });
+        return require('../lib/commands/studio')(process.cwd(), { host: valueAfter(args, '--host'), port: valueAfter(args, '--port'), openBrowser: !args.includes('--no-open'), color: flags.color });
       case 'build': {
         const code = require('../lib/commands/build')(process.cwd(), flags);
         process.exitCode = code;
@@ -26,7 +41,7 @@ function printHelp() {
         return;
       }
       case 'test': {
-        const code = require('../lib/commands/test')(process.cwd(), { json: args.includes('--json'), quiet: args.includes('--quiet') });
+        const code = require('../lib/commands/test')(process.cwd(), flags);
         process.exitCode = code;
         return;
       }
@@ -37,13 +52,14 @@ function printHelp() {
       case '-h':
       case '--help':
       case undefined:
-        return printHelp();
+        return printHelp(flags);
       default:
         throw new CliError(`Unknown command: ${command}`);
     }
   } catch (err) {
+    const terminal = createTerminal({ color: colorModeFromArgsSafe(args) });
     if (err instanceof CliError) {
-      console.error(`[jsonspecs-cli] ${err.message}`);
+      console.error(terminal.cliError(err.message));
       process.exit(err.exitCode || 1);
     }
     console.error(err);
@@ -52,3 +68,20 @@ function printHelp() {
 })();
 
 function valueAfter(args, flag) { const index = args.indexOf(flag); return index >= 0 ? args[index + 1] : undefined; }
+
+function colorModeFromArgs(args) {
+  if (args.includes('--no-color')) return 'never';
+  const inline = args.find((arg) => arg.startsWith('--color='));
+  const value = inline ? inline.slice('--color='.length) : valueAfter(args, '--color');
+  if (!value) return 'auto';
+  if (value === 'auto' || value === 'always' || value === 'never') return value;
+  throw new CliError(`Invalid --color value: ${value}. Use auto, always or never.`);
+}
+
+function colorModeFromArgsSafe(args) {
+  try {
+    return colorModeFromArgs(args);
+  } catch (_) {
+    return 'auto';
+  }
+}

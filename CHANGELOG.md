@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.3 — 2026-07-13
+
+- Added colorized human CLI output for `init`, `validate`, `test`, `build`, Studio logs, and help.
+- Added `--color=auto|always|never` / `--no-color` handling while keeping `--json` output ANSI-free.
+
 ## 2.1.2 — 2026-07-12
 
 - Refreshed README and package metadata for the current ruleset version, snapshot, Studio, and release workflow.

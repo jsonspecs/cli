@@ -31,6 +31,11 @@ jsonspecs studio
 | `build` | Writes deterministic `snapshot.json` and `build-info.json` into `dist/`. |
 | `studio` | Starts the local SPA Studio and JSON API for exploration and playground runs. |
 
+Human-readable CLI output is colorized automatically when stdout/stderr is a TTY. Use
+`--color=always`, `--color=never`, or `--color=auto` to override detection. `NO_COLOR`
+disables color and `FORCE_COLOR` enables it. `--json` output is always plain machine-readable
+JSON without ANSI escape codes, and `--quiet` suppresses human output.
+
 ## Rules project layout
 
 ```text
