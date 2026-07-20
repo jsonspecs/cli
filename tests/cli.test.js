@@ -91,6 +91,8 @@ test('build writes snapshot and build-info', () => {
   assert.equal(buildInfo.sourceHash, snapshot.sourceHash);
   assert.equal(buildInfo.snapshotFormat, snapshot.format);
   assert.equal(buildInfo.snapshotFormatVersion, snapshot.formatVersion);
+  assert.equal(buildInfo.warningCount, 0);
+  assert.equal(buildInfo.diagnosticCount, 0);
   assert.equal(buildInfo.warnings, 0);
   assert.equal(snapshot.meta.rulesetVersion, '0.1.0');
   assert.equal(buildInfo.rulesetVersion, snapshot.meta.rulesetVersion);
@@ -118,6 +120,7 @@ test('validate prints warnings on success and can fail on warnings', () => {
   assert.equal(parsed.ok, true);
   assert.equal(parsed.artifactCount, 3);
   assert.equal(parsed.warningCount, 1);
+  assert.equal(parsed.diagnosticCount, 1);
   assert.equal(parsed.diagnostics[0].code, 'REGEX_REDOS_RISK');
 
   const failed = captureConsole(() => runValidate(projectRoot, { failOnWarning: true, color: 'never' }));
@@ -145,6 +148,8 @@ test('build prints warnings, records warning count, and fail-on-warning skips wr
     assert.match(human.stderr, /build warnings/);
     assert.match(human.stderr, /REGEX_REDOS_RISK/);
     const buildInfo = require(path.join(projectRoot, 'dist', 'build-info.json'));
+    assert.equal(buildInfo.warningCount, 1);
+    assert.equal(buildInfo.diagnosticCount, 1);
     assert.equal(buildInfo.warnings, 1);
   }
 
@@ -159,6 +164,7 @@ test('build prints warnings, records warning count, and fail-on-warning skips wr
     assert.equal(json.value, 0);
     assert.equal(parsed.ok, true);
     assert.equal(parsed.warningCount, 1);
+    assert.equal(parsed.diagnosticCount, 1);
     assert.equal(parsed.diagnostics[0].code, 'REGEX_REDOS_RISK');
   }
 
@@ -202,7 +208,13 @@ test('human CLI output supports ANSI color while JSON and quiet modes stay clean
 
   const jsonOutput = captureConsole(() => runValidate(projectRoot, { json: true, color: 'always' }));
   assert.doesNotMatch(jsonOutput.stdout, /\u001b\[[0-9;]*m/);
-  assert.deepEqual(JSON.parse(jsonOutput.stdout), { ok: true, artifactCount: 2 });
+  assert.deepEqual(JSON.parse(jsonOutput.stdout), {
+    ok: true,
+    artifactCount: 2,
+    warningCount: 0,
+    diagnosticCount: 0,
+    diagnostics: []
+  });
 
   const quietOutput = captureConsole(() => runTest(projectRoot, { quiet: true, color: 'always' }));
   assert.equal(quietOutput.stdout, '');

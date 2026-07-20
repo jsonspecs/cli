@@ -1,6 +1,6 @@
 {
   "name": "jsonspecs-cli",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "private": true,
   "description": "Authoring, validation, snapshot build, sample-test, and local Studio CLI for jsonspecs projects",
   "type": "commonjs",
@@ -20,8 +20,8 @@
     "prepublishOnly": "node scripts/prevent-direct-publish.js"
   },
   "config": {
-    "jsonspecsVersion": "2.3.1",
-    "jsonspecsGitRef": "v2.3.1"
+    "jsonspecsVersion": "2.3.2",
+    "jsonspecsGitRef": "v2.3.2"
   },
   "dependencies": {
     "express": "^5.2.1",

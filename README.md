@@ -37,7 +37,8 @@ disables color and `FORCE_COLOR` enables it. `--json` output is always plain mac
 JSON without ANSI escape codes, and `--quiet` suppresses human output.
 
 `validate` and `build` print warning diagnostics even when validation succeeds. In `--json`
-mode, successful warning runs include `diagnostics` and `warningCount`. Add
+mode, successful runs always include `warningCount`, `diagnosticCount`, and `diagnostics`
+(`[]` when clean). Add
 `--fail-on-warning` to make warning diagnostics exit non-zero; for banking CI this flag is
 mandatory so release gates do not accept rulesets with compiler warnings.
 
@@ -99,7 +100,7 @@ The manifest also drives Studio display metadata:
   "format": "jsonspecs-snapshot",
   "formatVersion": 1,
   "sourceHash": "...",
-  "engine": { "minVersion": "2.3.1" },
+  "engine": { "minVersion": "2.3.2" },
   "artifacts": [],
   "meta": {
     "projectId": "checkout-rules",
@@ -110,7 +111,7 @@ The manifest also drives Studio display metadata:
 }
 ```
 
-`build-info.json` duplicates deployment metadata useful for CI, Docker images, and runtime services: project id/title, ruleset version, engine version, snapshot format/version, source hash, artifact count, warning count, entrypoints, and local Node operator packs.
+`build-info.json` duplicates deployment metadata useful for CI, Docker images, and runtime services: project id/title, ruleset version, engine version, snapshot format/version, source hash, artifact count, `warningCount`, `diagnosticCount`, entrypoints, and local Node operator packs. The legacy `warnings` field remains as a deprecated 2.x alias of `warningCount`.
 
 ## Sample tests
 
@@ -217,8 +218,8 @@ npm run verify
 ```json
 {
   "config": {
-    "jsonspecsVersion": "2.3.1",
-    "jsonspecsGitRef": "v2.3.1"
+    "jsonspecsVersion": "2.3.2",
+    "jsonspecsGitRef": "v2.3.2"
   }
 }
 ```

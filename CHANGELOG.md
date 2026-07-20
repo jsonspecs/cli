@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.2.1 — 2026-07-20
+
+- Standardized successful JSON output for `validate` and `build` with always-present `warningCount`, `diagnosticCount`, and `diagnostics`.
+- Added `warningCount` and `diagnosticCount` to `build-info.json` while keeping `warnings` as a deprecated 2.x alias.
+- Raised the coordinated `jsonspecs` engine release to 2.3.2.
+- Pinned GitHub Actions dependencies by full commit SHA in CI and release workflows.
+
 ## 2.2.0 — 2026-07-20
 
 - Printed warning diagnostics for successful `validate` and `build` runs.
