@@ -20,17 +20,17 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           path: jsonspecs-cli
-      - name: Resolve jsonspecs source ref
-        id: jsonspecs
+      - name: Resolve rules source ref
+        id: rules
         working-directory: jsonspecs-cli
-        run: echo "ref=$(node -p 'require("./package.json").config.jsonspecsGitRef')" >> "$GITHUB_OUTPUT"
-      - name: Checkout matching jsonspecs source
+        run: echo "ref=$(node -p 'require("./package.json").config.rulesGitRef')" >> "$GITHUB_OUTPUT"
+      - name: Checkout matching rules source
         # actions/checkout@v4
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           repository: jsonspecs/rules
-          ref: ${{ steps.jsonspecs.outputs.ref }}
-          path: jsonspecs
+          ref: ${{ steps.rules.outputs.ref }}
+          path: rules
       # actions/setup-node@v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:

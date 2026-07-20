@@ -14,6 +14,8 @@ const {
   verifySourceDependency,
 } = require("./release-package");
 
+const RULES_PACKAGE = "@jsonspecs/rules";
+
 function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, encoding: "utf8", env: process.env });
   if (result.status !== 0) {
@@ -23,15 +25,15 @@ function run(command, args, cwd) {
 }
 
 const root = path.resolve(__dirname, "..");
-const engineRoot = path.resolve(process.env.JSONSPECS_SOURCE || path.join(root, "..", "jsonspecs"));
+const rulesRoot = path.resolve(process.env.JSONSPECS_SOURCE || path.join(root, "..", "rules"));
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "jsonspecs-cli-pack-smoke-"));
 
 try {
-  const { expectedVersion } = verifySourceDependency(root, engineRoot);
+  const { expectedVersion } = verifySourceDependency(root, rulesRoot);
   const tarballs = path.join(temp, "tarballs");
   fs.mkdirSync(tarballs);
-  const engineTarball = packSourcePackage(engineRoot, tarballs);
-  const cliPackage = createReleasePackage({ root, engineRoot, outputDir: tarballs });
+  const rulesTarball = packSourcePackage(rulesRoot, tarballs);
+  const cliPackage = createReleasePackage({ root, rulesRoot, outputDir: tarballs });
 
   const consumer = path.join(temp, "consumer");
   fs.mkdirSync(consumer);
@@ -47,7 +49,7 @@ try {
     "--no-audit",
     "--no-fund",
     "--save-exact",
-    engineTarball,
+    rulesTarball,
     cliPackage.tarball,
   ], { cwd: consumer });
 
@@ -55,9 +57,9 @@ try {
   assert.equal(installedCli.private, undefined);
   assert.equal(installedCli.scripts, undefined);
   assert.equal(installedCli.config, undefined);
-  assert.equal(installedCli.dependencies.jsonspecs, `^${expectedVersion}`);
-  assert.equal(installedCli.dependencies.jsonspecs.includes("file:"), false);
-  assert.equal(readJson(path.join(consumer, "node_modules", "jsonspecs", "package.json")).version, expectedVersion);
+  assert.equal(installedCli.dependencies[RULES_PACKAGE], `^${expectedVersion}`);
+  assert.equal(installedCli.dependencies[RULES_PACKAGE].includes("file:"), false);
+  assert.equal(readJson(path.join(consumer, "node_modules", "@jsonspecs", "rules", "package.json")).version, expectedVersion);
 
   const binary = path.join(
     consumer,
@@ -78,7 +80,7 @@ try {
   fs.writeFileSync(cjsProbe, `
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const { createEngine, Operators } = require("jsonspecs");
+const { createEngine, Operators } = require("@jsonspecs/rules");
 const engine = createEngine({ operators: Operators });
 const prepared = engine.compileSnapshot(JSON.parse(fs.readFileSync(${JSON.stringify(snapshot)}, "utf8")));
 const result = engine.runPipeline(prepared, {
@@ -89,7 +91,7 @@ assert.equal(result.status, "OK");
 `);
   run(process.execPath, [cjsProbe], consumer);
 
-  console.log(`[jsonspecs-cli] packed CommonJS consumer smoke OK (jsonspecs ${expectedVersion})`);
+  console.log(`[jsonspecs-cli] packed CommonJS consumer smoke OK (${RULES_PACKAGE} ${expectedVersion})`);
 } finally {
   if (process.env.KEEP_PACK_SMOKE === "1") {
     console.log(`[jsonspecs-cli] kept smoke directory: ${temp}`);

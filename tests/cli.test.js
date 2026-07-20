@@ -10,7 +10,7 @@ const runInit = require('../lib/commands/init');
 const runValidate = require('../lib/commands/validate');
 const runBuild = require('../lib/commands/build');
 const runTest = require('../lib/commands/test');
-const { compileSnapshot } = require('jsonspecs');
+const { compileSnapshot } = require('@jsonspecs/rules');
 const { enrichArtifactForUi } = require('../lib/studio-helpers');
 const { stripAnsi } = require('../lib/terminal');
 
@@ -96,7 +96,7 @@ test('build writes snapshot and build-info', () => {
   assert.equal(buildInfo.warnings, 0);
   assert.equal(snapshot.meta.rulesetVersion, '0.1.0');
   assert.equal(buildInfo.rulesetVersion, snapshot.meta.rulesetVersion);
-  const result = require('jsonspecs').createEngine({ operators: require('jsonspecs').Operators })
+  const result = require('@jsonspecs/rules').createEngine({ operators: require('@jsonspecs/rules').Operators })
     .runPipeline(compileSnapshot(snapshot), { payload: { order: { amount: 1500 } } });
   assert.equal(result.ruleset.rulesetVersion, '0.1.0');
 });

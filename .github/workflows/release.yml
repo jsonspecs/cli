@@ -34,8 +34,8 @@ jobs:
         run: npm install --global npm@11.18.0
       - name: Verify tag and package version
         run: node scripts/verify-release-tag.js "$GITHUB_REF_NAME"
-      - name: Materialize the published jsonspecs dependency
-        run: node scripts/materialize-jsonspecs.js ../jsonspecs
+      - name: Materialize the published @jsonspecs/rules dependency
+        run: node scripts/materialize-rules.js ../rules
       - name: Install exact source dependencies
         run: npm ci
       - name: Verify source and packed consumer

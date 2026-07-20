@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.0 — 2026-07-21
+
+- Switched the CLI runtime dependency from `jsonspecs` to `@jsonspecs/rules`.
+- Raised the coordinated rules package release to 2.4.0.
+- Updated CI, release packaging, and packed-consumer smoke tests for the renamed rules package.
+
 ## 2.2.3 — 2026-07-20
 
 - Switched CI and development instructions to the renamed `jsonspecs/rules` engine repository.

@@ -27,7 +27,7 @@ What they cover today:
 
 ### P1
 
-- CI assertion that `package.json.config.jsonspecsGitRef` resolves to a `jsonspecs/package.json` whose version equals `config.jsonspecsVersion`.
+- CI assertion that `package.json.config.rulesGitRef` resolves to an `@jsonspecs/rules` package whose version equals `config.rulesVersion`.
 - Studio DOM test for rendered `whenHtml` trees:
   - no browser-default list bullets;
   - `flow-cond-rules__children` has reset list styles;
@@ -40,6 +40,6 @@ What they cover today:
 
 - Snapshot test for `/api/pipelines/:id/flow` with nested conditions and pipelines.
 - Studio API contract test for `catalog.fields[field].title` priority over `description`.
-- Release-package test that the sanitized tarball depends on `jsonspecs: ^<config.jsonspecsVersion>`.
+- Release-package test that the sanitized tarball depends on `@jsonspecs/rules: ^<config.rulesVersion>`.
 - CLI sample-test fixtures for `expect.exact: true` failure messages.
 - Project migration fixture for old manifests missing `project.version`.

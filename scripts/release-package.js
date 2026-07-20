@@ -5,6 +5,9 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
+const RULES_PACKAGE = "@jsonspecs/rules";
+const SOURCE_DEPENDENCY = "file:../rules";
+
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }
@@ -23,34 +26,34 @@ function runNpm(args, options = {}) {
   return result.stdout.trim();
 }
 
-function packageJsonspecsVersion(packageJson) {
-  const version = packageJson.config && packageJson.config.jsonspecsVersion;
+function packageRulesVersion(packageJson) {
+  const version = packageJson.config && packageJson.config.rulesVersion;
   if (typeof version !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
-    throw new Error("package.json config.jsonspecsVersion must be an explicit semver version");
+    throw new Error("package.json config.rulesVersion must be an explicit semver version");
   }
   return version;
 }
 
-function verifySourceDependency(root, engineRoot) {
+function verifySourceDependency(root, rulesRoot) {
   const packageJson = readJson(path.join(root, "package.json"));
-  const enginePackage = readJson(path.join(engineRoot, "package.json"));
-  const expectedVersion = packageJsonspecsVersion(packageJson);
+  const rulesPackage = readJson(path.join(rulesRoot, "package.json"));
+  const expectedVersion = packageRulesVersion(packageJson);
 
-  if (packageJson.dependencies?.jsonspecs !== "file:../jsonspecs") {
-    throw new Error("source package must use the sibling dependency file:../jsonspecs");
+  if (packageJson.dependencies?.[RULES_PACKAGE] !== SOURCE_DEPENDENCY) {
+    throw new Error(`source package must use the sibling dependency ${SOURCE_DEPENDENCY}`);
   }
-  if (enginePackage.name !== "jsonspecs") {
-    throw new Error(`expected jsonspecs at ${engineRoot}`);
+  if (rulesPackage.name !== RULES_PACKAGE) {
+    throw new Error(`expected ${RULES_PACKAGE} at ${rulesRoot}`);
   }
-  if (enginePackage.version !== expectedVersion) {
-    throw new Error(`jsonspecs source version ${enginePackage.version} does not match required ${expectedVersion}`);
+  if (rulesPackage.version !== expectedVersion) {
+    throw new Error(`${RULES_PACKAGE} source version ${rulesPackage.version} does not match required ${expectedVersion}`);
   }
 
   return { packageJson, expectedVersion };
 }
 
-function createReleasePackage({ root, engineRoot, outputDir }) {
-  const { packageJson, expectedVersion } = verifySourceDependency(root, engineRoot);
+function createReleasePackage({ root, rulesRoot, outputDir }) {
+  const { packageJson, expectedVersion } = verifySourceDependency(root, rulesRoot);
   const stageParent = fs.mkdtempSync(path.join(os.tmpdir(), "jsonspecs-cli-release-"));
   const stage = path.join(stageParent, "package");
   fs.mkdirSync(stage);
@@ -71,7 +74,7 @@ function createReleasePackage({ root, engineRoot, outputDir }) {
     delete releasePackageJson.private;
     delete releasePackageJson.scripts;
     delete releasePackageJson.config;
-    releasePackageJson.dependencies.jsonspecs = `^${expectedVersion}`;
+    releasePackageJson.dependencies[RULES_PACKAGE] = `^${expectedVersion}`;
     fs.writeFileSync(path.join(stage, "package.json"), `${JSON.stringify(releasePackageJson, null, 2)}\n`);
 
     fs.mkdirSync(outputDir, { recursive: true });
@@ -90,7 +93,7 @@ function createReleasePackage({ root, engineRoot, outputDir }) {
       tarball: path.resolve(outputDir, result.filename),
       filename: result.filename,
       integrity: result.integrity,
-      jsonspecsVersion: expectedVersion,
+      rulesVersion: expectedVersion,
     };
   } finally {
     fs.rmSync(stageParent, { recursive: true, force: true });
@@ -129,7 +132,7 @@ function packSourcePackage(sourceRoot, outputDir) {
 
 module.exports = {
   createReleasePackage,
-  packageJsonspecsVersion,
+  packageRulesVersion,
   packSourcePackage,
   readJson,
   runNpm,

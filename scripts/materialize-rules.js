@@ -5,12 +5,14 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { packageJsonspecsVersion, readJson, runNpm } = require("./release-package");
+const { packageRulesVersion, readJson, runNpm } = require("./release-package");
+
+const RULES_PACKAGE = "@jsonspecs/rules";
 
 const root = path.resolve(__dirname, "..");
-const target = path.resolve(process.argv[2] || path.join(root, "..", "jsonspecs"));
+const target = path.resolve(process.argv[2] || path.join(root, "..", "rules"));
 const packageJson = readJson(path.join(root, "package.json"));
-const version = packageJsonspecsVersion(packageJson);
+const version = packageRulesVersion(packageJson);
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "jsonspecs-cli-upstream-"));
 
 try {
@@ -20,23 +22,23 @@ try {
     "--ignore-scripts",
     "--pack-destination",
     temp,
-    `jsonspecs@${version}`,
+    `${RULES_PACKAGE}@${version}`,
   ]);
   const result = JSON.parse(raw)[0];
-  if (!result || !result.filename) throw new Error("npm pack did not report the jsonspecs tarball");
+  if (!result || !result.filename) throw new Error(`npm pack did not report the ${RULES_PACKAGE} tarball`);
 
   fs.rmSync(target, { recursive: true, force: true });
   fs.mkdirSync(target, { recursive: true });
   const tar = spawnSync("tar", ["-xzf", path.join(temp, result.filename), "--strip-components=1", "-C", target], {
     encoding: "utf8",
   });
-  if (tar.status !== 0) throw new Error(`failed to extract jsonspecs: ${tar.stderr || tar.stdout}`);
+  if (tar.status !== 0) throw new Error(`failed to extract ${RULES_PACKAGE}: ${tar.stderr || tar.stdout}`);
 
   const installed = readJson(path.join(target, "package.json"));
-  if (installed.name !== "jsonspecs" || installed.version !== version) {
-    throw new Error(`registry returned ${installed.name}@${installed.version}, expected jsonspecs@${version}`);
+  if (installed.name !== RULES_PACKAGE || installed.version !== version) {
+    throw new Error(`registry returned ${installed.name}@${installed.version}, expected ${RULES_PACKAGE}@${version}`);
   }
-  console.log(`[jsonspecs-cli] materialized published jsonspecs@${version} at ${target}`);
+  console.log(`[jsonspecs-cli] materialized published ${RULES_PACKAGE}@${version} at ${target}`);
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }
