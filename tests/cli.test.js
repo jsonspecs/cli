@@ -61,6 +61,7 @@ test("init creates an RC.7 authoring project", () => {
   const rule = read(path.join(projectRoot, "rules/library/order_amount_required.json"));
   const pipeline = read(path.join(projectRoot, "rules/entrypoints/order_validation.json"));
   const sample = read(path.join(projectRoot, "samples/order.ok.json"));
+  const generatedReadme = fs.readFileSync(path.join(projectRoot, "README.md"), "utf8");
 
   assert.equal(manifest.specVersion, "1.0.0-rc.7");
   assert.deepEqual(manifest.exports, ["entrypoints.order.validation"]);
@@ -69,6 +70,7 @@ test("init creates an RC.7 authoring project", () => {
   assert.deepEqual(pipeline.steps, ["library.order.amount_required"]);
   assert.equal(sample.pipelineId, "entrypoints.order.validation");
   assert.equal(fs.existsSync(path.join(projectRoot, "operators/node/index.js")), true);
+  assert.match(generatedReadme, /`jsonspecs test`/);
 });
 
 test("validate and build use the same fv2 snapshot", () => {
