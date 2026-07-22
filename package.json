@@ -1,6 +1,6 @@
 {
   "name": "jsonspecs-cli",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "private": true,
   "description": "Authoring, validation, snapshot build, sample-test, and local sandbox CLI for jsonspecs projects",
   "type": "commonjs",

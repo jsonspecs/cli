@@ -159,6 +159,29 @@ test("manifest enforces explicit sorted exports", () => {
   assert.throws(() => resolveProject(projectRoot), /exports must be sorted/);
 });
 
+test("authoring files reject duplicate JSON members before build", () => {
+  const manifestProject = scaffold();
+  const manifestFile = path.join(manifestProject, "manifest.json");
+  const manifestText = fs.readFileSync(manifestFile, "utf8");
+  fs.writeFileSync(manifestFile, manifestText.replace(
+    '"specVersion": "1.0.0-rc.7",',
+    '"specVersion": "1.0.0-rc.7",\n  "specVersion": "1.0.0-rc.6",',
+  ));
+  assert.throws(() => resolveProject(manifestProject), /Invalid JSON in manifest\.json: Duplicate object member "specVersion"/);
+
+  const artifactProject = scaffold();
+  const ruleFile = path.join(artifactProject, "rules/library/order_amount_required.json");
+  const ruleText = fs.readFileSync(ruleFile, "utf8");
+  fs.writeFileSync(ruleFile, ruleText.replace(
+    '"operator": "not_empty",',
+    '"operator": "not_empty",\n  "operator": "equals",',
+  ));
+  assert.throws(
+    () => buildProject(resolveProject(artifactProject)),
+    /Invalid JSON in library\/order_amount_required\.json: Duplicate object member "operator"/,
+  );
+});
+
 test("unused authoring artifacts fail full-closure validation", () => {
   const projectRoot = scaffold();
   write(path.join(projectRoot, "rules/library/unused.json"), {
@@ -219,6 +242,19 @@ test("sample runner rejects missing expectations and uncovered exports", () => {
   const uncovered = captureConsole(() => runTest(projectRoot, { json: true, color: "never" }));
   assert.equal(uncovered.value, 1);
   assert.match(uncovered.stdout, /missing sample for exported pipeline entrypoints\.order\.validation/);
+});
+
+test("sample runner rejects non-I-JSON before creating an evaluation tuple", () => {
+  const projectRoot = scaffold();
+  const sampleFile = path.join(projectRoot, "samples/order.ok.json");
+  const sampleText = fs.readFileSync(sampleFile, "utf8");
+  fs.writeFileSync(sampleFile, sampleText.replace(
+    '"payload": {',
+    '"payload": {},\n  "payload": {',
+  ));
+  const result = captureConsole(() => runTest(projectRoot, { color: "never" }));
+  assert.equal(result.value, 1);
+  assert.match(result.stdout, /Duplicate object member "payload"/);
 });
 
 test("sample runner discovers nested samples", () => {
@@ -335,7 +371,7 @@ test("bin help reports the v4 CLI", () => {
   const bin = path.join(__dirname, "..", "bin/jsonspecs.js");
   const result = spawnSync(process.execPath, [bin, "--help", "--color=never"], { encoding: "utf8" });
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /jsonspecs-cli v4\.0\.0/);
+  assert.match(result.stdout, /jsonspecs-cli v4\.0\.1/);
   assert.match(result.stdout, /jsonspecs sandbox/);
   assert.doesNotMatch(result.stdout, /jsonspecs studio/);
   assert.doesNotMatch(result.stdout, /\u001b\[[0-9;]*m/);
@@ -345,6 +381,9 @@ test("bundled Sandbox creates native v4 playground input", () => {
   const source = fs.readFileSync(path.join(__dirname, "../static/assets/index-GkLfNN2H.js"), "utf8");
   assert.match(source, /JSON\.stringify\(\{pipelineId:e,context:\{currentDate:u\},payload:\{\}\}/);
   assert.doesNotMatch(source, /JSON\.stringify\(\{context:\{pipelineId:e,currentDate:u\},payload:\{\}\}/);
+  assert.doesNotMatch(source, /\.context\?\.pipelineId/);
+  assert.doesNotMatch(source, /delete [A-Za-z_$][\w$]*\.context\.pipelineId/);
+  assert.match(source, /pipelineId обязателен на верхнем уровне/);
   assert.match(source, /children:u\.title\|\|u\.description\|\|u\.id/);
 });
 
@@ -400,8 +439,37 @@ test("Sandbox boots and executes a v4 tuple", async (t) => {
     body: JSON.stringify({ context: { pipelineId: "entrypoints.order.validation" }, payload: { order: { amount: 1 } } }),
   });
   const legacyResult = await legacyResponse.json();
-  assert.equal(legacyResult.status, "OK");
-  assert.equal(Object.hasOwn(legacyResult.context, "pipelineId"), false);
+  assert.equal(legacyResponse.status, 400);
+  assert.equal(legacyResult.message, "pipelineId is required (string)");
+
+  const contextFieldResponse = await fetch(`${base}/api/playground/run`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      pipelineId: "entrypoints.order.validation",
+      context: { pipelineId: "business-context-value" },
+      payload: { order: { amount: 1 } },
+    }),
+  });
+  const contextFieldResult = await contextFieldResponse.json();
+  assert.equal(contextFieldResponse.status, 200);
+  assert.equal(contextFieldResult.context.pipelineId, "business-context-value");
+
+  const duplicateResponse = await fetch(`${base}/api/playground/run`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: '{"pipelineId":"entrypoints.order.validation","payload":{},"payload":{}}',
+  });
+  assert.equal(duplicateResponse.status, 400);
+  assert.match((await duplicateResponse.json()).message, /Duplicate object member "payload"/);
+
+  const surrogateResponse = await fetch(`${base}/api/playground/run`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: '{"pipelineId":"entrypoints.order.validation","payload":{"value":"\\ud800"}}',
+  });
+  assert.equal(surrogateResponse.status, 400);
+  assert.match((await surrogateResponse.json()).message, /unpaired high surrogate/);
 
   const rule = await fetch(`${base}/api/rules/library.order.amount_required`).then((response) => response.json());
   assert.equal(rule.artifact.issue.code, "ORDER.AMOUNT.REQUIRED");

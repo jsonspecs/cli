@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.0.1 — 2026-07-22
+
+- Added one strict I-JSON parser for manifests, artifacts, samples, and Sandbox requests;
+  duplicate members and unpaired surrogates are now rejected before lossy conversion.
+- Removed Sandbox compatibility with `context.pipelineId`; Rules v4 requests now require
+  the documented top-level `pipelineId`.
+
 ## 4.0.0 — 2026-07-22
 
 - Moved the complete CLI workflow to `@jsonspecs/rules` v4 and spec 1.0.0-rc.7.

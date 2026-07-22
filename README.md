@@ -96,6 +96,11 @@ compiler requires the built snapshot to contain exactly their complete transitiv
 closure. Files, folders, titles, descriptions, ownership, and tags remain authoring
 data and do not affect `sourceHash`.
 
+The CLI parses `manifest.json`, rule artifacts, samples, and Sandbox JSON requests at a
+strict I-JSON boundary. Duplicate object members, unpaired UTF-16 surrogates, malformed
+UTF-8, overflowing binary64 numbers, and documents deeper than 256 levels are rejected
+before ordinary JavaScript object conversion can erase the original violation.
+
 ## Build output
 
 `jsonspecs build` writes the closed executable snapshot:
@@ -121,7 +126,7 @@ identifies only the executable snapshot.
 
 ## Samples
 
-Each sample is a v3 evaluation tuple plus an expected projection:
+Each sample is a v4 evaluation tuple plus an expected projection:
 
 ```json
 {
@@ -182,6 +187,7 @@ An operator receives values resolved by core and returns exactly `PASS`, `FAIL`,
 use the native v4 tuple with a top-level `pipelineId`. The backend uses a
 presentation adapter over rules v4 introspection: it classifies string steps, renders
 native RC.7 `when` expressions, lists `exports`, and executes the compiled fv2 snapshot.
+`context.pipelineId` does not select a pipeline and remains an ordinary context field.
 Sandbox is a local authoring tool and must not be exposed as a production service.
 
 ## Development

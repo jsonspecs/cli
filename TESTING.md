@@ -15,13 +15,15 @@ The unit/integration suite covers:
 - JCS `sourceHash` and compileSnapshot acceptance;
 - authoring metadata exclusion from the executable hash;
 - sorted exports and complete-closure rejection;
+- strict I-JSON rejection for duplicate members, lone surrogates, malformed UTF-8, and
+  Sandbox request bodies before evaluation;
 - source-file locations in diagnostics;
 - project-relative npm and local operator packs using `{schema, evaluate}`, immutable
   package digests, and recursive local hot reload;
 - recursive sample discovery, required expectations, one-to-one issue matching, and
   sample coverage for every export;
 - Sandbox exports, human-readable pipeline titles, native v4 playground input, native
-  `when` rendering, playground execution, and SPA fallback;
+  `when` rendering, rejection of `context.pipelineId`, playground execution, and SPA fallback;
 - color, JSON, quiet, and warning-gate output modes.
 
 `npm run test:pack` additionally creates real rules and CLI tarballs, installs both in a
