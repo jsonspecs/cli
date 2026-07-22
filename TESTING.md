@@ -1,8 +1,6 @@
 # Testing guide
 
-## Current gates
-
-Run before release:
+## Release gates
 
 ```bash
 npm test
@@ -10,36 +8,30 @@ npm run test:pack
 npm run verify
 ```
 
-What they cover today:
+The unit/integration suite covers:
 
-- scaffolded project generation;
-- manifest `project.version` validation;
-- project validation with built-in and local custom operators;
-- deterministic snapshot and build-info generation;
-- sample execution with subset and exact issue matching;
-- Studio boot through the introspection API on loopback;
-- Studio deep-link fallback;
-- Studio field title/value-field metadata;
-- condition page data with predicate and executed steps;
-- packed CommonJS consumer smoke with `init`, `validate`, `test`, and `build`.
+- RC.5 scaffold generation and top-level sample `pipelineId`;
+- a single fv2 build path shared by validate, build, test, and Sandbox;
+- JCS `sourceHash` and compileSnapshot acceptance;
+- authoring metadata exclusion from the executable hash;
+- sorted exports and complete-closure rejection;
+- source-file locations in diagnostics;
+- project-relative npm and local operator packs using `{schema, evaluate}`, immutable
+  package digests, and recursive local hot reload;
+- recursive sample discovery, required expectations, one-to-one issue matching, and
+  sample coverage for every export;
+- Sandbox exports, human-readable pipeline titles, native v3 playground input, native
+  `when` rendering, playground execution, and SPA fallback;
+- color, JSON, quiet, and warning-gate output modes.
 
-## Recommended additions
+`npm run test:pack` additionally creates real rules and CLI tarballs, installs both in a
+clean CommonJS consumer, and executes `init`, `validate`, `test`, and `build` through the
+installed `jsonspecs` binary.
 
-### P1
+## Recommended follow-ups
 
-- CI assertion that `package.json.config.rulesGitRef` resolves to an `@jsonspecs/rules` package whose version equals `config.rulesVersion`.
-- Studio DOM test for rendered `whenHtml` trees:
-  - no browser-default list bullets;
-  - `flow-cond-rules__children` has reset list styles;
-  - nested `all/any` groups keep readable indentation.
-- Regression test that `/api/docs/pipeline/:id` and `/api/docs/artifact/:id` stay removed or return 404.
-- Pack smoke for a clean ESM consumer in addition to the current CommonJS consumer.
-- Test that bundled `static/index.html` references existing hashed assets after Studio UI sync.
-
-### P2
-
-- Snapshot test for `/api/pipelines/:id/flow` with nested conditions and pipelines.
-- Studio API contract test for `catalog.fields[field].title` priority over `description`.
-- Release-package test that the sanitized tarball depends on `@jsonspecs/rules: ^<config.rulesVersion>`.
-- CLI sample-test fixtures for `expect.exact: true` failure messages.
-- Project migration fixture for old manifests missing `project.version`.
+- Clean ESM consumer coverage for external operator packages.
+- A fixture package with nested conditions, custom `inputs`/`params`, dictionaries, and
+  wildcard aggregation.
+- A release check that the tagged rules source commit equals the implementation pinned by
+  `jsonspecs/spec` conformance metadata.

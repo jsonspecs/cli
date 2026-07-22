@@ -10,7 +10,7 @@ function printHelp(options = {}) {
 
 ${c.bold('Commands:')}
   jsonspecs init <project-name> [--color auto|always|never]
-  jsonspecs studio [--host HOST] [--port PORT] [--no-open] [--color auto|always|never]
+  jsonspecs sandbox [--host HOST] [--port PORT] [--color auto|always|never]
   jsonspecs build [--json] [--quiet] [--fail-on-warning] [--color auto|always|never]
   jsonspecs validate [--json] [--quiet] [--fail-on-warning] [--color auto|always|never]
   jsonspecs test [--json] [--quiet] [--color auto|always|never]
@@ -33,8 +33,8 @@ ${c.bold('Color:')}
     switch (command) {
       case 'init':
         return require('../lib/commands/init')(args[0], process.cwd(), flags);
-      case 'studio':
-        return require('../lib/commands/studio')(process.cwd(), { host: valueAfter(args, '--host'), port: valueAfter(args, '--port'), openBrowser: !args.includes('--no-open'), color: flags.color });
+      case 'sandbox':
+        return require('../lib/commands/sandbox')(process.cwd(), { host: valueAfter(args, '--host'), port: valueAfter(args, '--port'), color: flags.color });
       case 'build': {
         const code = require('../lib/commands/build')(process.cwd(), flags);
         process.exitCode = code;

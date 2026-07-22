@@ -1,21 +1,41 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const express = require('express');
-const { spawnSync } = require('node:child_process');
+"use strict";
 
-const runInit = require('../lib/commands/init');
-const runValidate = require('../lib/commands/validate');
-const runBuild = require('../lib/commands/build');
-const runTest = require('../lib/commands/test');
-const { compileSnapshot } = require('@jsonspecs/rules');
-const { enrichArtifactForUi } = require('../lib/studio-helpers');
-const { stripAnsi } = require('../lib/terminal');
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const express = require("express");
+const { once } = require("node:events");
+const { spawnSync } = require("node:child_process");
+
+const runInit = require("../lib/commands/init");
+const runValidate = require("../lib/commands/validate");
+const runBuild = require("../lib/commands/build");
+const runTest = require("../lib/commands/test");
+const { buildProject, warningDiagnostics } = require("../lib/project-build");
+const { resolveProject } = require("../lib/project");
+const { enrichArtifactForUi } = require("../lib/studio-helpers");
+const { stripAnsi } = require("../lib/terminal");
+const rules = require("@jsonspecs/rules");
 
 function tmpdir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'jsonspecs-cli-'));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "jsonspecs-cli-"));
+}
+
+function scaffold(name = "demo") {
+  const root = tmpdir();
+  runInit(name, root, { quiet: true });
+  return path.join(root, name);
+}
+
+function read(file) {
+  return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+function write(file, value) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 function captureConsole(fn) {
@@ -25,337 +45,395 @@ function captureConsole(fn) {
   const stderr = [];
   let value;
   try {
-    console.log = (...args) => stdout.push(args.join(' '));
-    console.error = (...args) => stderr.push(args.join(' '));
+    console.log = (...args) => stdout.push(args.join(" "));
+    console.error = (...args) => stderr.push(args.join(" "));
     value = fn();
   } finally {
     console.log = originalLog;
     console.error = originalError;
   }
-  return { value, stdout: stdout.join('\n'), stderr: stderr.join('\n') };
+  return { value, stdout: stdout.join("\n"), stderr: stderr.join("\n") };
 }
 
-function addRegexWarningRule(projectRoot) {
-  fs.writeFileSync(path.join(projectRoot, 'rules', 'library', 'order_code_redos_warning.json'), JSON.stringify({
-    id: 'library.order.code_redos_warning',
-    type: 'rule',
-    description: 'warning regex',
-    role: 'check',
-    operator: 'matches_regex',
-    level: 'WARNING',
-    code: 'ORDER.CODE.WARNING',
-    message: 'warning regex',
-    field: 'order.code',
-    value: '^(a+)+$'
-  }, null, 2));
-}
+test("init creates an RC.5 authoring project", () => {
+  const projectRoot = scaffold();
+  const manifest = read(path.join(projectRoot, "manifest.json"));
+  const rule = read(path.join(projectRoot, "rules/library/order_amount_required.json"));
+  const pipeline = read(path.join(projectRoot, "rules/entrypoints/order_validation.json"));
+  const sample = read(path.join(projectRoot, "samples/order.ok.json"));
 
-test('init creates a scaffolded rules project', () => {
-  const root = tmpdir();
-  runInit('demo', root);
-  assert.equal(fs.existsSync(path.join(root, 'demo', 'manifest.json')), true);
-  assert.equal(require(path.join(root, 'demo', 'manifest.json')).project.version, '0.1.0');
-  assert.equal(fs.existsSync(path.join(root, 'demo', 'rules', 'library', 'order_amount_required.json')), true);
-  assert.equal(fs.existsSync(path.join(root, 'demo', 'samples', 'order.ok.json')), true);
-  assert.equal(fs.existsSync(path.join(root, 'demo', 'operators', 'node', 'index.js')), true);
+  assert.equal(manifest.specVersion, "1.0.0-rc.5");
+  assert.deepEqual(manifest.exports, ["entrypoints.order.validation"]);
+  assert.equal(rule.role, undefined);
+  assert.equal(rule.issue.code, "ORDER.AMOUNT.REQUIRED");
+  assert.deepEqual(pipeline.steps, ["library.order.amount_required"]);
+  assert.equal(sample.pipelineId, "entrypoints.order.validation");
+  assert.equal(fs.existsSync(path.join(projectRoot, "operators/node/index.js")), true);
 });
 
-test('validate succeeds for scaffolded project', () => {
-  const root = tmpdir();
-  runInit('demo', root);
-  const code = runValidate(path.join(root, 'demo'));
-  assert.equal(code, 0);
-});
+test("validate and build use the same fv2 snapshot", () => {
+  const projectRoot = scaffold();
+  assert.equal(runValidate(projectRoot, { quiet: true }), 0);
+  assert.equal(runBuild(projectRoot, { quiet: true }), 0);
 
-test('manifest requires an explicit semantic ruleset version', () => {
-  const root = tmpdir();
-  runInit('demo', root);
-  const projectRoot = path.join(root, 'demo');
-  const manifestFile = path.join(projectRoot, 'manifest.json');
-  const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
-  manifest.project.version = '01.0.0';
-  fs.writeFileSync(manifestFile, JSON.stringify(manifest));
-  assert.throws(() => require('../lib/project').resolveProject(projectRoot), /project\.version must be an explicit semantic version/);
-});
-
-test('build writes snapshot and build-info', () => {
-  const root = tmpdir();
-  runInit('demo', root);
-  const code = runBuild(path.join(root, 'demo'));
-  assert.equal(code, 0);
-  assert.equal(fs.existsSync(path.join(root, 'demo', 'dist', 'snapshot.json')), true);
-  assert.equal(fs.existsSync(path.join(root, 'demo', 'dist', 'build-info.json')), true);
-  const snapshot = require(path.join(root, 'demo', 'dist', 'snapshot.json'));
-  const buildInfo = require(path.join(root, 'demo', 'dist', 'build-info.json'));
-  assert.equal(compileSnapshot(snapshot).kind, 'prepared-jsonspecs');
+  const snapshot = read(path.join(projectRoot, "dist/snapshot.json"));
+  const buildInfo = read(path.join(projectRoot, "dist/build-info.json"));
+  assert.equal(snapshot.formatVersion, 2);
+  assert.equal(snapshot.specVersion, "1.0.0-rc.5");
+  assert.equal(Array.isArray(snapshot.artifacts), false);
+  assert.equal(snapshot.artifacts["library.order.amount_required"].id, undefined);
+  assert.equal(rules.computeSourceHash(snapshot), snapshot.sourceHash);
+  assert.equal(rules.compileSnapshot(snapshot).kind, "prepared-jsonspecs");
   assert.equal(buildInfo.sourceHash, snapshot.sourceHash);
-  assert.equal(buildInfo.snapshotFormat, snapshot.format);
-  assert.equal(buildInfo.snapshotFormatVersion, snapshot.formatVersion);
-  assert.equal(buildInfo.warningCount, 0);
-  assert.equal(buildInfo.diagnosticCount, 0);
-  assert.equal(buildInfo.warnings, 0);
-  assert.equal(snapshot.meta.rulesetVersion, '0.1.0');
-  assert.equal(buildInfo.rulesetVersion, snapshot.meta.rulesetVersion);
-  const result = require('@jsonspecs/rules').createEngine({ operators: require('@jsonspecs/rules').Operators })
-    .runPipeline(compileSnapshot(snapshot), { payload: { order: { amount: 1500 } } });
-  assert.equal(result.ruleset.rulesetVersion, '0.1.0');
+  assert.equal(buildInfo.project.version, "0.1.0");
+  assert.deepEqual(buildInfo.exports, snapshot.exports);
+  assert.equal(buildInfo.operatorPacks.length, 1);
+  assert.deepEqual(buildInfo.operatorPacks[0], {
+    specifier: "./operators/node",
+    id: "demo:./operators/node",
+    version: "0.1.0",
+    digest: buildInfo.operatorPacks[0].digest,
+  });
+  assert.match(buildInfo.operatorPacks[0].digest, /^sha256:[0-9a-f]{64}$/);
 });
 
-test('validate prints warnings on success and can fail on warnings', () => {
-  const root = tmpdir();
-  runInit('demo', root);
-  const projectRoot = path.join(root, 'demo');
-  addRegexWarningRule(projectRoot);
-
-  const human = captureConsole(() => runValidate(projectRoot, { color: 'never' }));
-  assert.equal(human.value, 0);
-  assert.match(human.stdout, /validate OK/);
-  assert.match(human.stdout, /3 artifacts, 1 warnings/);
-  assert.match(human.stderr, /validation warnings/);
-  assert.match(human.stderr, /REGEX_REDOS_RISK/);
-
-  const json = captureConsole(() => runValidate(projectRoot, { json: true }));
-  const parsed = JSON.parse(json.stdout);
-  assert.equal(json.value, 0);
-  assert.equal(parsed.ok, true);
-  assert.equal(parsed.artifactCount, 3);
-  assert.equal(parsed.warningCount, 1);
-  assert.equal(parsed.diagnosticCount, 1);
-  assert.equal(parsed.diagnostics[0].code, 'REGEX_REDOS_RISK');
-
-  const failed = captureConsole(() => runValidate(projectRoot, { failOnWarning: true, color: 'never' }));
-  assert.equal(failed.value, 1);
-  assert.match(failed.stderr, /REGEX_REDOS_RISK/);
-  assert.match(failed.stderr, /validate failed/);
-  assert.match(failed.stderr, /--fail-on-warning/);
-
-  const cleanRoot = tmpdir();
-  runInit('clean', cleanRoot);
-  assert.equal(runValidate(path.join(cleanRoot, 'clean'), { failOnWarning: true }), 0);
+test("authoring metadata does not change sourceHash", () => {
+  const projectRoot = scaffold();
+  assert.equal(runBuild(projectRoot, { quiet: true }), 0);
+  const first = read(path.join(projectRoot, "dist/snapshot.json")).sourceHash;
+  const manifestFile = path.join(projectRoot, "manifest.json");
+  const manifest = read(manifestFile);
+  manifest.catalog.artifacts["library.order.amount_required"].description = "Новое редакторское описание";
+  write(manifestFile, manifest);
+  assert.equal(runBuild(projectRoot, { quiet: true }), 0);
+  assert.equal(read(path.join(projectRoot, "dist/snapshot.json")).sourceHash, first);
 });
 
-test('build prints warnings, records warning count, and fail-on-warning skips writes', () => {
-  {
-    const root = tmpdir();
-    runInit('demo', root);
-    const projectRoot = path.join(root, 'demo');
-    addRegexWarningRule(projectRoot);
-
-    const human = captureConsole(() => runBuild(projectRoot, { color: 'never' }));
-    assert.equal(human.value, 0);
-    assert.match(human.stdout, /build OK/);
-    assert.match(human.stdout, /warnings: 1/);
-    assert.match(human.stderr, /build warnings/);
-    assert.match(human.stderr, /REGEX_REDOS_RISK/);
-    const buildInfo = require(path.join(projectRoot, 'dist', 'build-info.json'));
-    assert.equal(buildInfo.warningCount, 1);
-    assert.equal(buildInfo.diagnosticCount, 1);
-    assert.equal(buildInfo.warnings, 1);
-  }
-
-  {
-    const root = tmpdir();
-    runInit('demo', root);
-    const projectRoot = path.join(root, 'demo');
-    addRegexWarningRule(projectRoot);
-
-    const json = captureConsole(() => runBuild(projectRoot, { json: true }));
-    const parsed = JSON.parse(json.stdout);
-    assert.equal(json.value, 0);
-    assert.equal(parsed.ok, true);
-    assert.equal(parsed.warningCount, 1);
-    assert.equal(parsed.diagnosticCount, 1);
-    assert.equal(parsed.diagnostics[0].code, 'REGEX_REDOS_RISK');
-  }
-
-  {
-    const root = tmpdir();
-    runInit('demo', root);
-    const projectRoot = path.join(root, 'demo');
-    addRegexWarningRule(projectRoot);
-
-    const failed = captureConsole(() => runBuild(projectRoot, { failOnWarning: true, color: 'never' }));
-    assert.equal(failed.value, 1);
-    assert.match(failed.stderr, /REGEX_REDOS_RISK/);
-    assert.match(failed.stderr, /build failed/);
-    assert.match(failed.stderr, /--fail-on-warning/);
-    assert.equal(fs.existsSync(path.join(projectRoot, 'dist', 'snapshot.json')), false);
-    assert.equal(fs.existsSync(path.join(projectRoot, 'dist', 'build-info.json')), false);
-  }
-
-  {
-    const root = tmpdir();
-    runInit('clean', root);
-    assert.equal(runBuild(path.join(root, 'clean'), { failOnWarning: true }), 0);
-  }
+test("manifest enforces explicit sorted exports", () => {
+  const projectRoot = scaffold();
+  const manifestFile = path.join(projectRoot, "manifest.json");
+  const manifest = read(manifestFile);
+  manifest.exports = ["z.pipeline", "a.pipeline"];
+  write(manifestFile, manifest);
+  assert.throws(() => resolveProject(projectRoot), /exports must be sorted/);
 });
 
-test('test executes generated positive and negative samples', () => {
-  const root = tmpdir(); runInit('demo', root);
-  assert.equal(runTest(path.join(root, 'demo')), 0);
+test("unused authoring artifacts fail full-closure validation", () => {
+  const projectRoot = scaffold();
+  write(path.join(projectRoot, "rules/library/unused.json"), {
+    id: "library.unused",
+    type: "rule",
+    operator: "not_empty",
+    field: "unused",
+    issue: { level: "ERROR", code: "UNUSED", message: "Unused" },
+  });
+  const output = captureConsole(() => runValidate(projectRoot, { color: "never" }));
+  assert.equal(output.value, 1);
+  assert.match(output.stderr, /UNREACHABLE_ARTIFACT/);
+  assert.match(output.stderr, /library\.unused/);
 });
 
-test('human CLI output supports ANSI color while JSON and quiet modes stay clean', () => {
-  const root = tmpdir();
-  runInit('demo', root);
-  const projectRoot = path.join(root, 'demo');
+test("validation diagnostics retain the source file", () => {
+  const projectRoot = scaffold();
+  const ruleFile = path.join(projectRoot, "rules/library/order_amount_required.json");
+  const rule = read(ruleFile);
+  delete rule.operator;
+  write(ruleFile, rule);
 
-  const testOutput = captureConsole(() => runTest(projectRoot, { color: 'always' }));
-  assert.equal(testOutput.value, 0);
-  assert.match(testOutput.stdout, /\u001b\[[0-9;]*m/);
-  assert.match(stripAnsi(testOutput.stdout), /PASS order\.ok\.json/);
-  assert.match(stripAnsi(testOutput.stdout), /test OK \(2\/2\)/);
+  const output = captureConsole(() => runValidate(projectRoot, { color: "never" }));
+  assert.equal(output.value, 1);
+  assert.match(output.stderr, /\[INVALID_RULE\]/);
+  assert.match(output.stderr, /library\/order_amount_required\.json/);
+  assert.match(output.stderr, /library\.order\.amount_required/);
+});
 
-  const jsonOutput = captureConsole(() => runValidate(projectRoot, { json: true, color: 'always' }));
-  assert.doesNotMatch(jsonOutput.stdout, /\u001b\[[0-9;]*m/);
-  assert.deepEqual(JSON.parse(jsonOutput.stdout), {
+test("sample runner uses the v3 top-level pipelineId", () => {
+  const projectRoot = scaffold();
+  assert.equal(runTest(projectRoot, { quiet: true }), 0);
+
+  const sampleFile = path.join(projectRoot, "samples/order.ok.json");
+  const sample = read(sampleFile);
+  delete sample.pipelineId;
+  sample.context = { pipelineId: "entrypoints.order.validation" };
+  write(sampleFile, sample);
+  const result = captureConsole(() => runTest(projectRoot, { color: "never" }));
+  assert.equal(result.value, 1);
+  assert.match(result.stdout, /FAIL order\.ok\.json/);
+});
+
+test("sample runner rejects missing expectations and uncovered exports", () => {
+  const projectRoot = scaffold();
+  const okFile = path.join(projectRoot, "samples/order.ok.json");
+  const errorFile = path.join(projectRoot, "samples/order.error.json");
+  const okSample = read(okFile);
+  delete okSample.expect;
+  write(okFile, okSample);
+  fs.unlinkSync(errorFile);
+
+  const invalidExpectation = captureConsole(() => runTest(projectRoot, { json: true, color: "never" }));
+  assert.equal(invalidExpectation.value, 1);
+  assert.match(invalidExpectation.stdout, /expect must be an object/);
+
+  fs.unlinkSync(okFile);
+  const uncovered = captureConsole(() => runTest(projectRoot, { json: true, color: "never" }));
+  assert.equal(uncovered.value, 1);
+  assert.match(uncovered.stdout, /missing sample for exported pipeline entrypoints\.order\.validation/);
+});
+
+test("sample runner discovers nested samples", () => {
+  const projectRoot = scaffold();
+  const source = path.join(projectRoot, "samples/order.ok.json");
+  const nested = path.join(projectRoot, "samples/order/ok.json");
+  write(nested, read(source));
+  fs.unlinkSync(source);
+
+  const output = captureConsole(() => runTest(projectRoot, { json: true, color: "never" }));
+  const result = JSON.parse(output.stdout);
+  assert.equal(output.value, 0);
+  assert.equal(result.results.some((item) => item.file === "order/ok.json"), true);
+});
+
+test("sample issue matching is one-to-one", () => {
+  const failures = runTest.matchExpectedIssues(
+    [{ code: "DUPLICATE" }, { code: "DUPLICATE" }],
+    [{ code: "DUPLICATE", level: "ERROR" }, { code: "OTHER", level: "ERROR" }],
+  );
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /DUPLICATE/);
+});
+
+test("npm operator packs resolve relative to the rules project", () => {
+  const projectRoot = scaffold();
+  const packRoot = path.join(projectRoot, "node_modules/@demo/operators");
+  write(path.join(packRoot, "package.json"), { name: "@demo/operators", version: "1.0.0", main: "index.js" });
+  fs.writeFileSync(path.join(packRoot, "index.js"), `module.exports = {
+  amount_gt_zero: {
+    schema: {
+      type: "object",
+      properties: { field: { type: "string", minLength: 1 } },
+      required: ["field"],
+      additionalProperties: false
+    },
+    evaluate({ field }) {
+      return typeof field === "number" && field > 0 ? "PASS" : "FAIL";
+    }
+  }
+};\n`);
+
+  const manifestFile = path.join(projectRoot, "manifest.json");
+  const manifest = read(manifestFile);
+  manifest.operatorPacks.node = ["@demo/operators"];
+  write(manifestFile, manifest);
+  write(path.join(projectRoot, "rules/library/order_amount_positive.json"), {
+    id: "library.order.amount_positive",
+    type: "rule",
+    operator: "amount_gt_zero",
+    field: "order.amount",
+    issue: { level: "ERROR", code: "ORDER.AMOUNT.POSITIVE", message: "Сумма должна быть положительной" },
+  });
+  write(path.join(projectRoot, "rules/entrypoints/order_validation.json"), {
+    id: "entrypoints.order.validation",
+    type: "pipeline",
+    steps: ["library.order.amount_required", "library.order.amount_positive"],
+  });
+
+  const project = resolveProject(projectRoot);
+  const bundle = buildProject(project);
+  assert.equal(bundle.validation.ok, true);
+  assert.equal(bundle.operatorSources.amount_gt_zero, "@demo/operators");
+  const result = bundle.engine.runPipeline(bundle.prepared, {
+    pipelineId: "entrypoints.order.validation",
+    payload: { order: { amount: -1 } },
+  });
+  assert.equal(result.status, "ERROR");
+  assert.equal(result.issues[0].code, "ORDER.AMOUNT.POSITIVE");
+});
+
+test("local operator pack digest changes with deployed files", () => {
+  const projectRoot = scaffold();
+  const first = buildProject(resolveProject(projectRoot));
+  const operatorFile = path.join(projectRoot, "operators/node/index.js");
+  fs.appendFileSync(operatorFile, "\n// deployed change\n");
+  const second = buildProject(resolveProject(projectRoot));
+
+  assert.equal(first.snapshot.sourceHash, second.snapshot.sourceHash);
+  assert.notEqual(first.operatorPacks[0].digest, second.operatorPacks[0].digest);
+});
+
+test("warning gate remains deterministic when the compiler is clean", () => {
+  const projectRoot = scaffold();
+  const output = captureConsole(() => runValidate(projectRoot, { json: true, failOnWarning: true }));
+  assert.equal(output.value, 0);
+  assert.deepEqual(JSON.parse(output.stdout), {
     ok: true,
     artifactCount: 2,
     warningCount: 0,
     diagnosticCount: 0,
-    diagnostics: []
+    diagnostics: [],
   });
-
-  const quietOutput = captureConsole(() => runTest(projectRoot, { quiet: true, color: 'always' }));
-  assert.equal(quietOutput.stdout, '');
-  assert.equal(quietOutput.stderr, '');
+  assert.deepEqual(warningDiagnostics([{ level: "warning" }, { level: "error" }]), [{ level: "warning" }]);
 });
 
-test('validation diagnostics are structured and colorized in human mode', () => {
-  const root = tmpdir();
-  runInit('demo', root);
-  const projectRoot = path.join(root, 'demo');
-  const ruleFile = path.join(projectRoot, 'rules', 'library', 'order_amount_required.json');
-  const rule = JSON.parse(fs.readFileSync(ruleFile, 'utf8'));
-  delete rule.operator;
-  fs.writeFileSync(ruleFile, JSON.stringify(rule, null, 2));
-
-  const output = captureConsole(() => runValidate(projectRoot, { color: 'always' }));
-  assert.equal(output.value, 1);
-  assert.match(output.stderr, /\u001b\[[0-9;]*m/);
-  const plain = stripAnsi(output.stderr);
-  assert.match(plain, /validation failed/);
-  assert.match(plain, /\[SCHEMA_VALIDATION_ERROR\]/);
-  assert.match(plain, /artifact: library\.order\.amount_required/);
-  assert.match(plain, /path: operator/);
-  assert.match(plain, /message:/);
+test("human output supports ANSI while JSON and quiet stay clean", () => {
+  const projectRoot = scaffold();
+  const human = captureConsole(() => runTest(projectRoot, { color: "always" }));
+  assert.match(human.stdout, /\u001b\[[0-9;]*m/);
+  assert.match(stripAnsi(human.stdout), /test OK \(2\/2\)/);
+  const quiet = captureConsole(() => runTest(projectRoot, { quiet: true, color: "always" }));
+  assert.equal(quiet.stdout, "");
+  assert.equal(quiet.stderr, "");
 });
 
-test('bin help accepts --color and emits color only when requested', () => {
-  const bin = path.join(__dirname, '..', 'bin', 'jsonspecs.js');
-  const colored = spawnSync(process.execPath, [bin, '--help', '--color=always'], { encoding: 'utf8' });
-  assert.equal(colored.status, 0);
-  assert.match(colored.stdout, /\u001b\[[0-9;]*m/);
-  assert.match(stripAnsi(colored.stdout), /--color auto\|always\|never/);
-
-  const plain = spawnSync(process.execPath, [bin, '--help', '--color=never'], { encoding: 'utf8' });
-  assert.equal(plain.status, 0);
-  assert.doesNotMatch(plain.stdout, /\u001b\[[0-9;]*m/);
+test("bin help reports the v3 CLI", () => {
+  const bin = path.join(__dirname, "..", "bin/jsonspecs.js");
+  const result = spawnSync(process.execPath, [bin, "--help", "--color=never"], { encoding: "utf8" });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /jsonspecs-cli v3\.0\.0/);
+  assert.match(result.stdout, /jsonspecs sandbox/);
+  assert.doesNotMatch(result.stdout, /jsonspecs studio/);
+  assert.doesNotMatch(result.stdout, /\u001b\[[0-9;]*m/);
 });
 
-test('studio boots through introspection API on loopback', async (t) => {
-  const root = tmpdir(); runInit('demo', root); const projectRoot = path.join(root, 'demo');
-  const manifestFile = path.join(projectRoot, 'manifest.json'); const manifest = JSON.parse(fs.readFileSync(manifestFile)); manifest.studio.port = 0; fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+test("bundled Sandbox creates native v3 playground input", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../static/assets/index-GkLfNN2H.js"), "utf8");
+  assert.match(source, /JSON\.stringify\(\{pipelineId:e,context:\{currentDate:u\},payload:\{\}\}/);
+  assert.doesNotMatch(source, /JSON\.stringify\(\{context:\{pipelineId:e,currentDate:u\},payload:\{\}\}/);
+  assert.match(source, /children:u\.title\|\|u\.description\|\|u\.id/);
+});
+
+test("Sandbox boots and executes a v3 tuple", async (t) => {
+  const projectRoot = scaffold();
+  const manifestFile = path.join(projectRoot, "manifest.json");
+  const manifest = read(manifestFile);
+  manifest.sandbox.port = 0;
+  write(manifestFile, manifest);
+
   const sendFileCalls = [];
   const originalSendFile = express.response.sendFile;
   express.response.sendFile = function sendFile(file, options) {
     sendFileCalls.push({ file, options });
-    return this.type('html').send('<!doctype html><title>jsonspecs studio</title>');
+    return this.type("html").send("<!doctype html><title>jsonspecs sandbox</title>");
   };
   t.after(() => { express.response.sendFile = originalSendFile; });
-  const project = require('../lib/project').resolveProject(projectRoot);
-  const runtime = require('../lib/studio-server').startStudio(project); t.after(() => { runtime.server.close(); for (const watcher of runtime.ctx.watchers) watcher.close(); });
-  await new Promise((resolve) => runtime.server.listening ? resolve() : runtime.server.once('listening', resolve));
-  const health = await fetch(`http://127.0.0.1:${runtime.server.address().port}/health`).then((response) => response.json());
-  assert.equal(health.ok, true);
-  assert.equal(Object.hasOwn(runtime.ctx.compiled, 'registry'), false);
-  const deepLink = await fetch(`http://127.0.0.1:${runtime.server.address().port}/rules/library.order.amount_required`);
+
+  const runtime = require("../lib/studio-server").startSandbox(resolveProject(projectRoot), { color: "never" });
+  t.after(() => {
+    runtime.server.close();
+    for (const watcher of runtime.ctx.watchers) watcher.close();
+  });
+  await new Promise((resolve) => runtime.server.listening ? resolve() : runtime.server.once("listening", resolve));
+  const base = `http://127.0.0.1:${runtime.server.address().port}`;
+
+  const health = await fetch(`${base}/health`).then((response) => response.json());
+  assert.equal(health.mode, "sandbox");
+  const entrypoints = await fetch(`${base}/api/entrypoints`).then((response) => response.json());
+  assert.deepEqual(entrypoints.items.map((item) => item.id), ["entrypoints.order.validation"]);
+  const pipeline = await fetch(`${base}/api/pipelines/entrypoints.order.validation`).then((response) => response.json());
+  assert.equal(pipeline.pipeline.description, "Проверка заказа");
+  const response = await fetch(`${base}/api/playground/run`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pipelineId: "entrypoints.order.validation", payload: { order: { amount: "" } } }),
+  });
+  const result = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(result.status, "ERROR");
+  assert.equal(result.issues[0].code, "ORDER.AMOUNT.REQUIRED");
+
+  const legacyResponse = await fetch(`${base}/api/playground/run`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ context: { pipelineId: "entrypoints.order.validation" }, payload: { order: { amount: 1 } } }),
+  });
+  const legacyResult = await legacyResponse.json();
+  assert.equal(legacyResult.status, "OK");
+  assert.equal(Object.hasOwn(legacyResult.context, "pipelineId"), false);
+
+  const rule = await fetch(`${base}/api/rules/library.order.amount_required`).then((response) => response.json());
+  assert.equal(rule.artifact.issue.code, "ORDER.AMOUNT.REQUIRED");
+  assert.equal(rule.artifact.code, "ORDER.AMOUNT.REQUIRED");
+
+  const deepLink = await fetch(`${base}/rules/library.order.amount_required`);
   assert.equal(deepLink.status, 200);
   assert.equal(sendFileCalls.length, 1);
-  assert.equal(sendFileCalls[0].file, 'index.html');
-  assert.equal(sendFileCalls[0].options.root, path.join(__dirname, '..', 'static'));
 });
 
-test('validate succeeds with project-local custom operators', () => {
-  const root = tmpdir();
-  runInit('demo', root);
-  const projectRoot = path.join(root, 'demo');
-  fs.writeFileSync(path.join(projectRoot, 'operators', 'node', 'index.js'), `module.exports = {
-  check: {
-    amount_gt_zero(rule, ctx) {
-      const value = ctx.get(rule.field);
-      if (!value.ok) return { status: 'FAIL', actual: undefined };
-      const n = Number(value.value);
-      return { status: Number.isFinite(n) && n > 0 ? 'OK' : 'FAIL', actual: value.value };
-    }
+test("Sandbox reloads helper modules from a local operator pack", async (t) => {
+  const projectRoot = scaffold();
+  const ruleFile = path.join(projectRoot, "rules/library/order_amount_required.json");
+  const pipelineFile = path.join(projectRoot, "rules/entrypoints/order_validation.json");
+  const packFile = path.join(projectRoot, "operators/node/index.js");
+  const helperFile = path.join(projectRoot, "operators/node/logic.js");
+  write(ruleFile, {
+    id: "library.demo.toggle",
+    type: "rule",
+    operator: "demo_toggle",
+    issue: { level: "ERROR", code: "TOGGLE", message: "toggle failed" },
+  });
+  write(pipelineFile, {
+    id: "entrypoints.order.validation",
+    type: "pipeline",
+    steps: ["library.demo.toggle"],
+  });
+  fs.writeFileSync(packFile, `const logic = require("./logic");
+module.exports = {
+  demo_toggle: {
+    schema: { type: "object", properties: {}, additionalProperties: false },
+    evaluate: () => logic(),
   },
-  predicate: {},
-  meta: {
-    operators: {
-      amount_gt_zero: { description: 'должно быть больше нуля' }
-    }
-  }
-};\n`, 'utf8');
-  fs.writeFileSync(path.join(projectRoot, 'rules', 'library', 'order_amount_positive.json'), JSON.stringify({
-    id: 'library.order.amount_positive',
-    type: 'rule',
-    description: 'Сумма заказа должна быть больше нуля',
-    role: 'check',
-    operator: 'amount_gt_zero',
-    level: 'ERROR',
-    code: 'ORDER.AMOUNT.POSITIVE',
-    message: 'Сумма заказа должна быть больше нуля',
-    field: 'order.amount'
-  }, null, 2));
-  fs.writeFileSync(path.join(projectRoot, 'rules', 'entrypoints', 'order_validation.json'), JSON.stringify({
-    id: 'entrypoints.order.validation',
-    type: 'pipeline',
-    description: 'Пример проверки заказа',
-    strict: false,
-    flow: [
-      { rule: 'library.order.amount_required' },
-      { rule: 'library.order.amount_positive' }
-    ],
-    entrypoint: true,
-    required_context: []
-  }, null, 2));
+};
+`);
+  fs.writeFileSync(helperFile, `module.exports = () => "FAIL";\n`);
+  const project = resolveProject(projectRoot);
+  project.manifest.sandbox.port = 0;
+  const runtime = require("../lib/studio-server").startSandbox(project, { color: "never" });
+  t.after(() => {
+    for (const watcher of runtime.ctx.watchers) watcher.close();
+    runtime.server.close();
+  });
+  const execute = () => runtime.ctx.engine.runPipeline(runtime.ctx.compiled, {
+    pipelineId: "entrypoints.order.validation",
+    payload: {},
+  }).status;
 
-  const code = runValidate(projectRoot);
-  assert.equal(code, 0);
-  const { engine } = require('../lib/engine').createCliEngine(require('../lib/project').resolveProject(projectRoot));
-  const loaded = require('../lib/loader-fs').loadArtifactsFromDir(path.join(projectRoot, 'rules'));
-  const prepared = engine.compile(loaded.artifacts, { sources: loaded.sources });
-  assert.equal(engine.runPipeline(prepared, { pipelineId: 'entrypoints.order.validation', payload: { order: { amount: -1 } } }).status, 'ERROR');
+  assert.equal(execute(), "ERROR");
+  const reloaded = once(runtime.ctx, "reload");
+  fs.writeFileSync(helperFile, `module.exports = () => "PASS";\n`);
+  await Promise.race([
+    reloaded,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Sandbox reload timeout")), 3000)),
+  ]);
+  assert.equal(execute(), "OK");
 });
 
-test('Studio exposes comparison-field metadata and condition steps', () => {
+test("Sandbox renders native RC.5 when and condition steps", () => {
   const artifacts = new Map([
-    ['library.compare', { id: 'library.compare', type: 'rule', field: 'order.amount', value_field: '$context.minimum' }],
-    ['library.present', { id: 'library.present', type: 'rule', description: 'Сумма заполнена' }],
-    ['library.condition', { id: 'library.condition', type: 'condition' }],
+    ["library.compare", { id: "library.compare", type: "rule", field: "order.amount", value_field: "$context.minimum" }],
+    ["library.present", { id: "library.present", type: "rule" }],
+    ["library.condition", { id: "library.condition", type: "condition" }],
   ]);
   const view = {
     getArtifact(id) { return artifacts.get(id) || null; },
     getConditionModel(id) {
-      return id === 'library.condition'
-        ? { when: { mode: 'single', predId: 'library.present' }, steps: [{ kind: 'rule', ruleId: 'library.compare' }] }
+      return id === "library.condition"
+        ? { when: "library.present", steps: [{ kind: "rule", ruleId: "library.compare" }] }
         : null;
     },
     getPipelineSteps() { return null; },
   };
   const manifest = {
-    fields: { '$context.minimum': { title: 'Минимальная сумма' } },
-    artifacts: { 'library.compare': { title: 'Сравнение сумм' } },
+    fields: { "$context.minimum": { title: "Минимальная сумма" } },
+    artifacts: {
+      "library.compare": { title: "Сравнение сумм" },
+      "library.present": { title: "Сумма заполнена" },
+    },
     operators: {},
     entrypoints: {},
   };
 
-  const rule = enrichArtifactForUi('library.compare', view, manifest);
-  assert.equal(rule.display.valueField.title, 'Минимальная сумма');
-  const condition = enrichArtifactForUi('library.condition', view, manifest);
+  const rule = enrichArtifactForUi("library.compare", view, manifest);
+  assert.equal(rule.display.valueField.title, "Минимальная сумма");
+  const condition = enrichArtifactForUi("library.condition", view, manifest);
   assert.match(condition.compiled.whenHtml, /Сумма заполнена/);
-  assert.match(condition.compiled.whenHtml, /library\.present/);
-  assert.equal(condition.compiled.steps.length, 1);
-  assert.equal(condition.compiled.steps[0].id, 'library.compare');
-  assert.equal(condition.compiled.steps[0].title, 'Сравнение сумм');
+  assert.equal(condition.compiled.steps[0].id, "library.compare");
 });

@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.0.0 — 2026-07-22
+
+- Migrated all commands and Studio to `@jsonspecs/rules` v3 and spec 1.0.0-rc.5.
+- Added one shared authoring builder for closed formatVersion 2 snapshots and JCS hashes.
+- Replaced v2 roles, flows, entrypoints, snapshot meta, and context pipeline selectors with the RC.5 model.
+- Made manifest `exports` the explicit public API and enforced complete snapshot closure.
+- Migrated project-local and npm operator packs to the `{schema, evaluate}` contract, resolved relative to the project.
+- Replaced the public `studio` command with `sandbox` and updated the scaffold.
+- Updated samples, the Studio introspection adapter, tests, pack smoke, and release pinning.
+- Made sample tests fail on missing expectations or uncovered exports and discover nested samples.
+- Rebuilt Sandbox request defaults around the native top-level `pipelineId` and restored catalog titles.
+- Added recursive local operator-pack reload and immutable operator-pack digests to build info.
+
 ## 2.3.0 — 2026-07-21
 
 - Switched the CLI runtime dependency from `jsonspecs` to `@jsonspecs/rules`.

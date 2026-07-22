@@ -5,7 +5,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node 20+](https://img.shields.io/badge/Node-20%2B-green)](https://nodejs.org/)
 
-Authoring, validation, build, sample-test, and local Studio host for [`@jsonspecs/rules`](https://www.npmjs.com/package/@jsonspecs/rules) projects.
+Authoring, validation, build, sample-test, and local Sandbox CLI for
+[`@jsonspecs/rules`](https://www.npmjs.com/package/@jsonspecs/rules) v3 projects.
+Version 3 builds snapshots for `jsonspecs/spec` **1.0.0-rc.5** and
+`formatVersion: 2`.
 
 ## Install
 
@@ -20,29 +23,22 @@ jsonspecs init <project-name>
 jsonspecs validate
 jsonspecs test
 jsonspecs build
-jsonspecs studio
+jsonspecs sandbox
 ```
 
 | Command | Purpose |
 | --- | --- |
-| `init` | Creates a minimal rules project with manifest, example rules, samples, local operator pack, and output directories. |
-| `validate` | Loads artifacts from `rules/` and reports structured diagnostics from the `jsonspecs` compiler, including success-time warnings. |
-| `test` | Runs every JSON sample in `samples/` against the compiled project. |
-| `build` | Writes deterministic `snapshot.json` and `build-info.json` into `dist/` after validation, including warning counts. |
-| `studio` | Starts the local SPA Studio and JSON API for exploration and playground runs. |
+| `init` | Creates a minimal RC.5 authoring project, samples, and an empty local operator pack. |
+| `validate` | Builds the in-memory fv2 snapshot and runs the rules v3 compiler. |
+| `test` | Runs every `samples/*.json` tuple against the same compiled snapshot. |
+| `build` | Writes the validated `snapshot.json` and external `build-info.json`. |
+| `sandbox` | Starts the local exploration and playground UI. |
 
-Human-readable CLI output is colorized automatically when stdout/stderr is a TTY. Use
-`--color=always`, `--color=never`, or `--color=auto` to override detection. `NO_COLOR`
-disables color and `FORCE_COLOR` enables it. `--json` output is always plain machine-readable
-JSON without ANSI escape codes, and `--quiet` suppresses human output.
+Human output supports `--color=auto|always|never`. `--json` is always free of ANSI
+codes and `--quiet` suppresses human output. `validate` and `build` retain the
+`--fail-on-warning` CI gate for compiler diagnostics.
 
-`validate` and `build` print warning diagnostics even when validation succeeds. In `--json`
-mode, successful runs always include `warningCount`, `diagnosticCount`, and `diagnostics`
-(`[]` when clean). Add
-`--fail-on-warning` to make warning diagnostics exit non-zero; for banking CI this flag is
-mandatory so release gates do not accept rulesets with compiler warnings.
-
-## Rules project layout
+## Authoring project
 
 ```text
 manifest.json
@@ -58,152 +54,139 @@ docs/
 dist/
 ```
 
-`docs/` is reserved for hand-written project documentation. The CLI no longer generates Markdown or Confluence-style documentation from pipelines. Studio is an exploration/playground UI; it does not expose `/api/docs/*` endpoints.
-
-## Manifest contract
-
-`manifest.json` must contain an explicit SemVer ruleset version:
+Each file under `rules/` contains one artifact with an authoring-only `id`:
 
 ```json
 {
-  "project": {
-    "id": "checkout-rules",
-    "version": "1.0.0",
-    "title": "Checkout rules",
-    "description": "Checkout validation rules",
-    "language": "ru"
+  "id": "customer.name.required",
+  "type": "rule",
+  "operator": "not_empty",
+  "field": "customer.name",
+  "issue": {
+    "level": "ERROR",
+    "code": "CUSTOMER.NAME.REQUIRED",
+    "message": "Customer name is required"
   }
 }
 ```
 
-`project.version` is copied to:
+The builder removes `id` from the artifact body and uses it as the key in
+`snapshot.artifacts`. Pipeline and condition steps are exact string ids. Rules have no
+`check|predicate` role: any rule can be used in `when`, while a rule used as a step must
+have `issue`.
 
-- `snapshot.meta.rulesetVersion`;
-- `build-info.json.rulesetVersion`;
-- runtime result `ruleset.rulesetVersion` after `jsonspecs.compileSnapshot()`.
+`manifest.json` owns the authoring metadata and public exports:
 
-Increment it whenever the rules package is released. Projects created before `project.version` became required must add it before running `validate`, `test`, `build`, or Studio.
+```json
+{
+  "specVersion": "1.0.0-rc.5",
+  "exports": ["entrypoints.customer.validation"],
+  "project": {
+    "id": "customer-rules",
+    "version": "1.0.0",
+    "title": "Customer rules",
+    "description": "Customer data checks",
+    "language": "en"
+  }
+}
+```
 
-The manifest also drives Studio display metadata:
-
-- `catalog.fields[field].title` is the primary human-readable field label;
-- `catalog.fields[field].description` is secondary explanatory text;
-- `catalog.entrypoints[id]` and `catalog.artifacts[id]` provide titles/descriptions for pages and flow views;
-- `catalog.operators` and operator-pack `meta.operators` provide operator descriptions.
+`exports` must be non-empty, unique, and sorted by unsigned UTF-16 code units. The
+compiler requires the built snapshot to contain exactly their complete transitive
+closure. Files, folders, titles, descriptions, ownership, and tags remain authoring
+data and do not affect `sourceHash`.
 
 ## Build output
 
-`jsonspecs build` writes a deterministic snapshot suitable for `jsonspecs.compileSnapshot()`:
+`jsonspecs build` writes the closed executable snapshot:
 
 ```json
 {
   "format": "jsonspecs-snapshot",
-  "formatVersion": 1,
-  "sourceHash": "...",
-  "engine": { "minVersion": "2.3.2" },
-  "artifacts": [],
-  "meta": {
-    "projectId": "checkout-rules",
-    "projectTitle": "Checkout rules",
-    "description": "Checkout validation rules",
-    "rulesetVersion": "1.0.0"
-  }
+  "formatVersion": 2,
+  "specVersion": "1.0.0-rc.5",
+  "exports": ["entrypoints.customer.validation"],
+  "artifacts": {},
+  "sourceHash": "..."
 }
 ```
 
-`build-info.json` duplicates deployment metadata useful for CI, Docker images, and runtime services: project id/title, ruleset version, engine version, snapshot format/version, source hash, artifact count, `warningCount`, `diagnosticCount`, entrypoints, and local Node operator packs. The legacy `warnings` field remains as a deprecated 2.x alias of `warningCount`.
+`sourceHash` is calculated by `@jsonspecs/rules` over the final snapshot using the RC.5
+JCS formula. The CLI validates that exact object before writing it. `build-info.json`
+stores deployment metadata outside the executable format: project version, runtime
+version, build time, exports, counts, and the same source hash. Every external operator
+pack is recorded with its manifest specifier, stable id, version, and a `sha256:` digest
+of the deployed package files. The operator digest is separate from `sourceHash`, which
+identifies only the executable snapshot.
 
-## Sample tests
+## Samples
 
-Each `samples/*.json` file is a complete execution case:
+Each sample is a v3 evaluation tuple plus an expected projection:
 
 ```json
 {
-  "context": {
-    "pipelineId": "entrypoints.order.validation",
-    "currentDate": "2026-07-12"
-  },
-  "payload": {
-    "order": { "amount": 1500 }
-  },
+  "pipelineId": "entrypoints.customer.validation",
+  "payload": { "customer": { "name": "" } },
+  "context": {},
   "expect": {
-    "status": "OK",
-    "exact": true,
-    "issues": []
+    "status": "ERROR",
+    "issues": [{ "code": "CUSTOMER.NAME.REQUIRED" }],
+    "exact": true
   }
 }
 ```
 
-`expect.status` is exact. `expect.issues` uses subset matching, so a sample can assert only stable fields such as `code`, `field`, and `level`. `expect.exact: true` rejects additional issues.
+`pipelineId` is always explicit and top-level. `expect.status` and `expect.issues` are
+required. Expected issues use one-to-one subset matching; `exact: true` also requires the
+issue count to match. Samples may be nested below `samples/`, and `jsonspecs test` fails
+when an exported pipeline has no sample.
 
-## Custom operators
+## External operators
 
-Project-local custom operators are loaded from `manifest.json`:
+The CLI is operator-agnostic. It loads only modules explicitly declared by the project:
 
 ```json
 {
   "operatorPacks": {
-    "node": ["./operators/node"]
+    "node": ["@company/payment-operators", "./operators/node"]
   }
 }
 ```
 
-A local Node operator pack exports `check`, `predicate`, and optional `meta`:
+Both npm packages and local paths are resolved relative to the rules project's
+`manifest.json`, not relative to the global CLI installation. Each module exports the
+rules v3 operator map directly:
 
 ```js
 module.exports = {
-  check: {
-    amount_gt_zero(rule, ctx) {
-      const got = ctx.get(rule.field);
-      if (!got.ok) return { status: "FAIL", actual: undefined };
-
-      const value = Number(got.value);
-      return {
-        status: Number.isFinite(value) && value > 0 ? "OK" : "FAIL",
-        actual: got.value,
-      };
+  amount_gt_zero: {
+    schema: {
+      type: "object",
+      properties: { field: { type: "string", minLength: 1 } },
+      required: ["field"],
+      additionalProperties: false,
     },
-  },
-  predicate: {},
-  meta: {
-    operators: {
-      amount_gt_zero: {
-        description: "должно быть больше нуля",
-      },
+    evaluate({ field }) {
+      return typeof field === "number" && field > 0 ? "PASS" : "FAIL";
     },
   },
 };
 ```
 
-Project-local operator packs should use the runtime context passed by `jsonspecs`:
+An operator receives values resolved by core and returns exactly `PASS`, `FAIL`, or
+`SKIP`. Operator descriptions for Sandbox belong in `manifest.catalog.operators`.
 
-- `ctx.get(path)` — stable payload/context field access;
-- `ctx.has(path)` — presence check;
-- `ctx.payloadKeys` — flattened payload keys;
-- `ctx.getDictionary(id)` — dictionary lookup.
+## Sandbox
 
-Do not import `jsonspecs` or `deepGet` from project-local operator packs.
-
-## Studio
-
-`jsonspecs studio` serves a bundled SPA from `/` and a JSON API under `/api/*`.
-
-Current Studio capabilities:
-
-- entrypoint list and project summary;
-- pipeline flow, nested conditions, and stats;
-- rule, condition, dictionary, and generic artifact pages;
-- playground execution against sample payloads;
-- safe `basic` trace rendering in the playground;
-- SPA deep-link fallback for routes such as `/rules/<id>` and `/pipelines/<id>/playground`.
-
-Studio binds to `127.0.0.1` by default and uses same-origin requests. It is a local development tool and must not be exposed as a production service.
-
-The bundled frontend is built from the separate `jsonspecs-studio-ui` repository and copied into `static/`.
+`jsonspecs sandbox` serves the bundled SPA on `127.0.0.1` by default. Playground requests
+use the native v3 tuple with a top-level `pipelineId`. The backend uses a
+presentation adapter over rules v3 introspection: it classifies string steps, renders
+native RC.5 `when` expressions, lists `exports`, and executes the compiled fv2 snapshot.
+Sandbox is a local authoring tool and must not be exposed as a production service.
 
 ## Development
 
-The source checkout intentionally depends on a sibling `../rules` checkout:
+The source checkout uses a sibling rules repository:
 
 ```bash
 git clone https://github.com/jsonspecs/rules.git rules
@@ -213,39 +196,15 @@ npm ci
 npm run verify
 ```
 
-`package.json` pins the coordinated engine release in:
+`package.json.config.rulesVersion` and `rulesGitRef` pin the coordinated rules release.
+The release packer replaces the local `file:../rules` dependency with `^3.0.0`, then
+tests the real packed CLI in a clean CommonJS consumer.
 
-```json
-{
-  "config": {
-    "rulesVersion": "2.4.0",
-    "rulesGitRef": "v2.4.0"
-  }
-}
-```
+## Release
 
-Advance both fields deliberately when the CLI needs a newer engine. Dependabot/Renovate will not update this pair automatically because the source dependency is intentionally a sibling checkout for reproducible local and CI builds.
-
-## Tests
-
-```bash
-npm test
-npm run test:pack
-npm run verify
-```
-
-`npm run test:pack` creates real tarballs, installs them in a clean CommonJS consumer, and runs the installed CLI through `init`, `validate`, `test`, and `build`.
-
-Current coverage and recommended additions are tracked in [TESTING.md](./TESTING.md).
-
-## Release order
-
-1. Publish the matching `@jsonspecs/rules` version first.
-2. Update `config.rulesVersion` and `config.rulesGitRef` if needed.
+1. Publish the matching `@jsonspecs/rules` version.
+2. Update `config.rulesVersion` and `config.rulesGitRef` together.
 3. Tag `jsonspecs-cli` with `v<version>`.
 
-The tag workflow downloads the exact rules package release, builds a sanitized registry-safe tarball whose dependency is `@jsonspecs/rules: ^<rulesVersion>`, repeats the pack/install smoke test, publishes to npm, and creates a GitHub release.
-
-Publishing uses npm trusted publishing from GitHub Actions. Configure npm package `jsonspecs-cli` with owner/repo `jsonspecs/cli`, workflow filename `release.yml`, allowed action `npm publish`, and no environment. The release job runs on a GitHub-hosted runner with `id-token: write`, uses Node 24 and npm 11.18.0, and does not use `NPM_TOKEN`/`NODE_AUTH_TOKEN`. Trusted publishing generates provenance automatically; `--provenance` is not required.
-
-Direct publication from the source checkout is blocked by `private: true` and a `prepublishOnly` guard.
+Publishing uses npm trusted publishing from `jsonspecs/cli` workflow `release.yml` with
+`id-token: write`; no npm token is stored in the repository.

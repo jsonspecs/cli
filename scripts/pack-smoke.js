@@ -80,10 +80,9 @@ try {
   fs.writeFileSync(cjsProbe, `
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const { createEngine, Operators } = require("@jsonspecs/rules");
-const engine = createEngine({ operators: Operators });
-const prepared = engine.compileSnapshot(JSON.parse(fs.readFileSync(${JSON.stringify(snapshot)}, "utf8")));
-const result = engine.runPipeline(prepared, {
+const { compileSnapshot, runPipeline } = require("@jsonspecs/rules");
+const prepared = compileSnapshot(JSON.parse(fs.readFileSync(${JSON.stringify(snapshot)}, "utf8")));
+const result = runPipeline(prepared, {
   pipelineId: "entrypoints.order.validation",
   payload: { order: { amount: 1500 } },
 });
