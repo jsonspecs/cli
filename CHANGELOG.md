@@ -12,6 +12,7 @@
 - Made sample tests fail on missing expectations or uncovered exports and discover nested samples.
 - Rebuilt Sandbox request defaults around the native top-level `pipelineId` and restored catalog titles.
 - Added recursive local operator-pack reload and immutable operator-pack digests to build info.
+- Fixed clean CI and release installs for runtime dependencies of the pinned Rules v3 source.
 
 ## 2.3.0 — 2026-07-21
 

@@ -28,6 +28,9 @@ The unit/integration suite covers:
 clean CommonJS consumer, and executes `init`, `validate`, `test`, and `build` through the
 installed `jsonspecs` binary.
 
+Release verification materializes the published `@jsonspecs/rules` package together with
+its runtime dependencies before installing and testing the source CLI.
+
 ## Recommended follow-ups
 
 - Clean ESM consumer coverage for external operator packages.

@@ -38,7 +38,15 @@ try {
   if (installed.name !== RULES_PACKAGE || installed.version !== version) {
     throw new Error(`registry returned ${installed.name}@${installed.version}, expected ${RULES_PACKAGE}@${version}`);
   }
-  console.log(`[jsonspecs-cli] materialized published ${RULES_PACKAGE}@${version} at ${target}`);
+  runNpm([
+    "install",
+    "--omit=dev",
+    "--ignore-scripts",
+    "--no-audit",
+    "--no-fund",
+    "--package-lock=false",
+  ], { cwd: target });
+  console.log(`[jsonspecs-cli] materialized published ${RULES_PACKAGE}@${version} with runtime dependencies at ${target}`);
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }
